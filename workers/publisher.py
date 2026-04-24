@@ -93,7 +93,10 @@ async def _process_channel(
 
         # Очередь твитов этого юзера
         queue = await get_digest_queue(
-            session, user.tg_user_id, max_items=channel.digest_max_tweets
+            session,
+            user.tg_user_id,
+            channel_id=channel.id,
+            max_items=channel.digest_max_tweets,
         )
         if len(queue) < 2:
             logger.info(

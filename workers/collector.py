@@ -151,6 +151,7 @@ async def _process_channel(
                     await enqueue_for_digest(
                         session=session,
                         user_id=user.tg_user_id,
+                        channel_id=channel.id,
                         tweet_id=tw.id,
                         twitter_username=tw.username,
                         text=tw.text,

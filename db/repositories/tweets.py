@@ -37,6 +37,7 @@ async def mark_processed(
 async def enqueue_for_digest(
     session: AsyncSession,
     user_id: int,
+    channel_id: int,
     tweet_id: str,
     twitter_username: str,
     text: str,
@@ -46,6 +47,7 @@ async def enqueue_for_digest(
 ) -> None:
     item = DigestQueueItem(
         user_id=user_id,
+        channel_id=channel_id,
         tweet_id=tweet_id,
         twitter_username=twitter_username,
         text=text,
@@ -61,11 +63,14 @@ async def enqueue_for_digest(
 
 
 async def get_digest_queue(
-    session: AsyncSession, user_id: int, max_items: int
+    session: AsyncSession, user_id: int, channel_id: int, max_items: int
 ) -> list[DigestQueueItem]:
     result = await session.execute(
         select(DigestQueueItem)
-        .where(DigestQueueItem.user_id == user_id)
+        .where(
+            DigestQueueItem.user_id == user_id,
+            DigestQueueItem.channel_id == channel_id,
+        )
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(max_items)
     )

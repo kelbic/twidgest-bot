@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Payment, User
@@ -56,7 +57,8 @@ async def record_payment(
     amount_stars: int,
     tier: Tier,
     telegram_payment_charge_id: str,
-) -> Payment:
+) -> Payment | None:
+    """Записывает платеж. Возвращает None, если такой charge_id уже был (дубль)."""
     payment = Payment(
         user_id=user_id,
         amount_stars=amount_stars,
@@ -64,9 +66,14 @@ async def record_payment(
         telegram_payment_charge_id=telegram_payment_charge_id,
     )
     session.add(payment)
-    await session.commit()
-    await session.refresh(payment)
-    return payment
+    try:
+        await session.commit()
+        await session.refresh(payment)
+        return payment
+    except IntegrityError:
+        await session.rollback()
+        # Дубль — Telegram ретраил webhook, но мы уже обработали
+        return None
 
 
 async def get_user_payments(

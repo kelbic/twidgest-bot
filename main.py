@@ -90,7 +90,10 @@ async def main() -> None:
     logging.info("Bot @%s started. Polling...", me.username)
 
     # Первый цикл сбора сразу — чтобы не ждать 30 минут после рестарта
-    asyncio.create_task(run_collect_cycle(bot, cache, llm_default, llm_pro))
+    async def _startup_cycle():
+        await run_collect_cycle(bot, cache, llm_default, llm_pro)
+        await run_publish_cycle(bot, llm_default, llm_pro)
+    asyncio.create_task(_startup_cycle())
 
     try:
         await dp.start_polling(bot)

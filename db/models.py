@@ -181,11 +181,12 @@ class ProcessedTweet(Base):
 class DigestQueueItem(Base):
     __tablename__ = "digest_queue"
     __table_args__ = (
-        UniqueConstraint("user_id", "tweet_id", name="uq_user_queue_tweet"),
+        UniqueConstraint("channel_id", "tweet_id", name="uq_channel_queue_tweet"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     tweet_id: Mapped[str] = mapped_column(String(32))
     twitter_username: Mapped[str] = mapped_column(String(32))
     text: Mapped[str] = mapped_column(Text)
@@ -219,6 +220,9 @@ class DigestLog(Base):
 
 class Payment(Base):
     __tablename__ = "payments"
+    __table_args__ = (
+        UniqueConstraint("telegram_payment_charge_id", name="uq_payment_charge_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True)
