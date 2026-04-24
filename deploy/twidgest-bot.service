@@ -1,0 +1,15 @@
+[Unit]
+Description=TwidgestBot — multi-tenant Twitter to Telegram SaaS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/twidgest-bot
+Environment="PATH=/root/twidgest-bot/venv/bin"
+ExecStart=/root/twidgest-bot/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
