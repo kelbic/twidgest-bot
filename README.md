@@ -2,6 +2,11 @@
 
 Multi-tenant Telegram SaaS bot that turns curated X (Twitter) feeds into automatic Russian-language Telegram channels. Built as a solo-founder MVP demonstrating end-to-end SaaS architecture: payments, admin panel, AI-powered onboarding, and autonomous content workers.
 
+![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
+![aiogram 3](https://img.shields.io/badge/aiogram-3.x-26A5E4.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
+![Status: Production](https://img.shields.io/badge/status-production-success.svg)
+
 Live bot: [@TwidgestBot](https://t.me/TwidgestBot)
 
 ---
