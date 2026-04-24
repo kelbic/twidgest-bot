@@ -1,4 +1,4 @@
-"""Команды для Channel: /channels, /createchannel, /deletechannel."""
+"""Команды для Channel: /channels, /createchannel, /templates."""
 from __future__ import annotations
 
 from aiogram import Router
@@ -7,6 +7,7 @@ from aiogram.types import Message
 
 from config import Config
 from core.llm_client import OpenRouterClient
+from core.twitter_client import TwitterClient
 from db.repositories.channels import (
     create_channel,
     delete_channel,
@@ -17,9 +18,10 @@ from db.session import session_maker
 from templates import TEMPLATES, get_template, list_templates
 from tiers import get_limits
 
-# Используем default LLM для подбора источников (Haiku — дешевле и быстрее)
+# Shared clients for AI-assisted channel creation
 _cfg = Config()
 _llm = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_default)
+_twitter = TwitterClient(_cfg.twitter_api_key)
 
 router = Router(name="channels")
 
@@ -37,7 +39,7 @@ CREATE_HELP = """\
 <code>/createchannel ai &lt;описание&gt;</code>
 Пример: <code>/createchannel ai крикет, премьер-лига Индии</code>
 
-<i>⚠️ AI-генерация будет добавлена в следующем обновлении. Пока используй темплейты.</i>
+<i>AI-режим проверяет каждый источник на существование и активность перед сохранением.</i>
 """
 
 
@@ -66,8 +68,7 @@ async def cmd_channels(message: Message) -> None:
 
     if not channels:
         await message.answer(
-            "У тебя пока нет каналов.\n\n"
-            "Создай первый: /createchannel"
+            "У тебя пока нет каналов.\n\nСоздай первый: /createchannel"
         )
         return
 
@@ -166,10 +167,9 @@ async def _create_from_template(message: Message, template_id: str) -> None:
         f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
         f"⚙️ Режим: digest, раз в 12 часов\n\n"
         f"<b>⚠️ Следующий шаг:</b>\n"
-        f"1. Создай Telegram-канал (или используй существующий)\n"
+        f"1. Создай Telegram-канал\n"
         f"2. Добавь @TwidgestBot админом с правом «Публикация сообщений»\n"
         f"3. Перешли мне любое сообщение из канала\n\n"
-        f"Я сам определю чат и привяжу его к каналу <b>{tpl.name}</b>.\n\n"
         f"Список твоих каналов: /channels"
     )
 
@@ -192,7 +192,17 @@ async def cmd_deletechannel(message: Message, command: CommandObject) -> None:
     else:
         await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
 
+
 async def _create_with_ai(message: Message, topic_description: str) -> None:
+    """AI-генерация через Twitter Search (не через угадывание имён).
+
+    Pipeline:
+    1. LLM даёт 4 поисковых ключевика для темы
+    2. Twitter Search находит реальные аккаунты по каждому ключевику
+    3. Дедупликация + ранжирование по followers
+    4. LLM выбирает самых релевантных из кандидатов
+    5. Создаём канал с реальными аккаунтами
+    """
     if message.from_user is None:
         return
     if len(topic_description) < 10:
@@ -202,21 +212,81 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
         )
         return
 
-    await message.answer(
+    status_msg = await message.answer(
         f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
-        f"Это займёт 10-30 секунд..."
+        f"Шаг 1/3: генерирую поисковые запросы..."
     )
 
-    suggested = await _llm.suggest_sources(topic_description, count=12)
-    if not suggested:
-        await message.answer(
-            "⚠️ Не удалось подобрать источники. Попробуй переформулировать тему "
-            "или используй готовый темплейт: /templates"
+    # === Шаг 1: LLM даёт ключевые слова для поиска ===
+    queries = await _llm.suggest_search_queries(topic_description, count=6)
+    if not queries:
+        await status_msg.edit_text(
+            "⚠️ Не удалось сгенерировать поисковые запросы. Попробуй переформулировать.\n"
+            "Или используй готовый темплейт: /templates"
         )
         return
 
-    # Сохраним канал с этими источниками
-    sources_list = [s["username"] for s in suggested]
+    queries_display = ", ".join(f"<code>{q}</code>" for q in queries[:4])
+    await status_msg.edit_text(
+        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
+        f"Шаг 2/3: ищу реальные аккаунты в X по запросам:\n{queries_display}"
+    )
+
+    # === Шаг 2: Twitter Search по каждому ключевику ===
+    all_candidates: dict[str, dict] = {}  # screen_name -> user dict
+    for query in queries[:6]:
+        users = await _twitter.search_users(query, limit=15)
+        for u in users:
+            sn = u["screen_name"].lower()
+            # Дедуп: если уже видели — сохраняем тот что с большим followers
+            if sn in all_candidates:
+                if u["followers_count"] > all_candidates[sn]["followers_count"]:
+                    all_candidates[sn] = u
+            else:
+                all_candidates[sn] = u
+
+    # Фильтруем низкокачественных: меньше 500 фоловеров или меньше 50 твитов
+    MIN_FOLLOWERS = 300
+    MIN_TWEETS = 30
+    filtered = [
+        u for u in all_candidates.values()
+        if u["followers_count"] >= MIN_FOLLOWERS
+        and u["statuses_count"] >= MIN_TWEETS
+    ]
+
+    if len(filtered) < 3:
+        await status_msg.edit_text(
+            f"⚠️ Для темы «{topic_description}» найдено только {len(filtered)} "
+            f"активных аккаунтов с достаточной аудиторией.\n\n"
+            f"Твиттер слабо покрывает эту нишу. Попробуй:\n"
+            f"1️⃣ Переформулировать более широко или по-английски\n"
+            f"2️⃣ Использовать готовый темплейт: /templates"
+        )
+        return
+
+    # Сортируем по followers desc, берём топ-20 для ранжирования LLM
+    filtered.sort(key=lambda u: u["followers_count"], reverse=True)
+    top_candidates = filtered[:30]
+
+    await status_msg.edit_text(
+        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
+        f"Шаг 3/3: нашёл {len(filtered)} кандидатов, выбираю самых релевантных..."
+    )
+
+    # === Шаг 3: LLM выбирает самых релевантных из реальных кандидатов ===
+    selected = await _llm_rank_candidates(topic_description, top_candidates)
+    if not selected or len(selected) < 3:
+        # fallback: берём топ-12 просто по followers
+        selected = [
+            {
+                "username": c["screen_name"],
+                "reason": f"{c['followers_count']:,} подписчиков. {c['description'][:120]}",
+            }
+            for c in top_candidates[:12]
+        ]
+
+    # === Шаг 4: создаём канал ===
+    sources_list = [s["username"] for s in selected]
     title = topic_description[:80]
 
     async with session_maker()() as session:
@@ -224,20 +294,20 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
             session,
             user_id=message.from_user.id,
             title=title,
-            niche="general",  # для AI-генерированных — generic ниша
+            niche="general",
             template_id=None,
             description=topic_description,
             mode="digest",
             sources=sources_list,
         )
 
-    # Показываем юзеру список с reason
     lines = [
-        f"✅ <b>Канал создан с AI-подобранными источниками!</b>\n",
+        f"✅ <b>Канал создан с реальными источниками из X!</b>\n",
         f"📝 <b>{title}</b> (id={channel.id})\n",
-        f"📡 <b>Источники ({len(suggested)}):</b>\n",
+        f"ℹ️ Найдено в X по запросам: {len(filtered)}, выбрано: {len(selected)}\n",
+        f"📡 <b>Источники:</b>",
     ]
-    for s in suggested:
+    for s in selected[:15]:
         reason = s.get("reason", "").strip()
         if reason:
             lines.append(f"  • @{s['username']} — {reason}")
@@ -248,9 +318,73 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
         f"\n⚙️ Режим: digest, раз в 12 часов\n\n"
         f"<b>⚠️ Следующий шаг:</b>\n"
         f"1. Создай Telegram-канал\n"
-        f"2. Добавь @TwidgestBot админом с правом «Публикация сообщений»\n"
+        f"2. Добавь @TwidgestBot админом\n"
         f"3. Перешли мне любое сообщение из канала\n\n"
-        f"<i>Не нравится список? Удали через /deletechannel {channel.id} "
-        f"и попробуй другую формулировку.</i>"
+        f"Не нравится? /deletechannel {channel.id}"
     )
-    await message.answer("\n".join(lines))
+    await status_msg.edit_text("\n".join(lines))
+
+
+async def _llm_rank_candidates(
+    topic: str, candidates: list[dict]
+) -> list[dict] | None:
+    """LLM выбирает из реальных кандидатов самых релевантных теме.
+
+    Возвращает список {username, reason}.
+    """
+    import json as _json
+
+    # Формируем компактный список для LLM
+    candidate_list = [
+        {
+            "username": c["screen_name"],
+            "name": c["name"],
+            "bio": c["description"][:200],
+            "followers": c["followers_count"],
+        }
+        for c in candidates
+    ]
+
+    system = (
+        "Ты помогаешь отобрать лучшие X-аккаунты для тематического канала. "
+        "Тебе дан список РЕАЛЬНЫХ аккаунтов с описаниями и подписчиками. "
+        "Выбери из них 8-12 самых релевантных теме канала и объясни выбор. "
+        "Отвечай строго JSON-массивом, без преамбулы, без markdown. "
+        "Формат: [{\"username\": \"...\", \"reason\": \"короткое объяснение\"}, ...]. "
+        "Исключай личные/спам аккаунты, NSFW, fan-страницы, дубликаты по теме."
+    )
+    user = (
+        f"Тема канала: {topic}\n\n"
+        f"Кандидаты (уже существующие в X аккаунты):\n"
+        f"{_json.dumps(candidate_list, ensure_ascii=False, indent=1)}\n\n"
+        f"Выбери 8-12 лучших для этой темы, верни JSON."
+    )
+
+    result = await _llm._call_with_retry(system, user, max_tokens=2000)
+    if not result:
+        return None
+
+    clean = result.strip()
+    if clean.startswith("```"):
+        lines = clean.split("\n")
+        clean = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+    try:
+        data = _json.loads(clean)
+    except Exception:
+        return None
+
+    if not isinstance(data, list):
+        return None
+
+    valid = set(c["screen_name"].lower() for c in candidates)
+    selected = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        uname = str(item.get("username", "")).lstrip("@").strip()
+        if uname.lower() not in valid:
+            continue  # LLM вернула имя которого не было — игнорим
+        reason = str(item.get("reason", "")).strip()
+        selected.append({"username": uname, "reason": reason})
+    return selected

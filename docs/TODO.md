@@ -18,3 +18,9 @@
 - [ ] Кэширование tier в context'е цикла collector
 - [ ] Broadcast: HTML validation перед отправкой
 - [ ] PAYMENT_TEST_MODE для тестов платёжного flow
+
+## AI-source selection — next iteration
+- [ ] Hybrid approach: combine "LLM suggests known experts" + "Twitter Search finds active accounts". Search finds community/outlets, LLM names big-name experts (Paul Graham, Naval for startups — not findable by search).
+- [ ] Validate LLM-suggested expert names via twitterapi.io (same pattern as before, just 2-3 names not 15).
+- [ ] Cache search results per keyword (same keyword queried multiple times during testing).
+- [ ] For mainstream niches (sports, politics, tech) — detect via niche-classifier and raise MIN_FOLLOWERS to 5000+.

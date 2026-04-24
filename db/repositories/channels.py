@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from db.models import Channel, ChannelSource
+from engagement_defaults import get_engagement_defaults
 
 
 async def create_channel(
@@ -18,6 +19,7 @@ async def create_channel(
     mode: str = "digest",
     sources: list[str] | None = None,
 ) -> Channel:
+    min_likes, min_retweets = get_engagement_defaults(niche)
     channel = Channel(
         user_id=user_id,
         title=title,
@@ -25,6 +27,8 @@ async def create_channel(
         template_id=template_id,
         description=description,
         mode=mode,
+        min_likes=min_likes,
+        min_retweets=min_retweets,
     )
     session.add(channel)
     await session.flush()  # получаем id

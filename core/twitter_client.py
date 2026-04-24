@@ -98,3 +98,82 @@ class TwitterClient:
 
         logger.info("Fetched %d tweets for @%s", len(tweets), username)
         return tweets
+    async def validate_usernames(
+        self, usernames: list[str]
+    ) -> dict[str, bool]:
+        """Для каждого username делаем 1 get_user_tweets, считаем живым если >= 1 твит.
+
+        Возвращает {username: is_alive}.
+        """
+        import asyncio as _asyncio
+
+        async def _check(username: str) -> tuple[str, bool]:
+            try:
+                tweets = await self.get_user_tweets(username, limit=5)
+                return username, len(tweets) > 0
+            except Exception:
+                logger.exception("validate failed for @%s", username)
+                return username, False
+
+        # Параллельно, но с ограничением — API не любит 20 RPS
+        results: dict[str, bool] = {}
+        semaphore = _asyncio.Semaphore(5)
+
+        async def _bounded(u: str):
+            async with semaphore:
+                u_clean, alive = await _check(u)
+                results[u_clean] = alive
+
+        await _asyncio.gather(*(_bounded(u.lstrip("@").strip()) for u in usernames if u.strip()))
+        return results
+    async def search_users(
+        self, query: str, limit: int = 20
+    ) -> list[dict]:
+        """Поиск реальных аккаунтов X по ключевым словам.
+
+        Возвращает список dict с полями:
+        - screen_name (реальный @username, без @)
+        - name (отображаемое имя)
+        - description (био)
+        - followers_count
+        - statuses_count
+        - is_verified (Blue Verified)
+        """
+        url = f"{BASE_URL}/twitter/user/search"
+        params = {"query": query, "limit": str(limit)}
+        try:
+            async with aiohttp.ClientSession(headers=self._headers) as session:
+                async with session.get(url, params=params, timeout=30) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        logger.error(
+                            "search_users HTTP %s for query=%r: %s",
+                            resp.status, query, body[:300],
+                        )
+                        return []
+                    data = await resp.json()
+        except Exception:
+            logger.exception("Network error in search_users(%r)", query)
+            return []
+
+        users_raw = data.get("users") or data.get("data", {}).get("users") or []
+        if not users_raw:
+            logger.info("search_users: no results for query=%r", query)
+            return []
+
+        result = []
+        for u in users_raw[:limit]:
+            screen_name = u.get("screen_name") or ""
+            if not screen_name:
+                continue
+            result.append({
+                "screen_name": screen_name.lstrip("@").strip(),
+                "name": u.get("name") or "",
+                "description": (u.get("description") or "")[:300],
+                "followers_count": int(u.get("followers_count") or 0),
+                "statuses_count": int(u.get("statuses_count") or 0),
+                "is_verified": bool(u.get("isBlueVerified") or u.get("verified")),
+            })
+        logger.info("search_users(%r): %d users found", query, len(result))
+        return result
+

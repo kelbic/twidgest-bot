@@ -333,6 +333,60 @@ class OpenRouterClient:
                 result_list.append({"username": username, "reason": reason or ""})
         return result_list if result_list else None
 
+
+    async def suggest_search_queries(
+        self, topic_description: str, count: int = 4
+    ) -> list[str] | None:
+        """Для темы канала возвращает список поисковых запросов в X.
+        
+        Вместо угадывания username'ов LLM даёт ключевые слова, по которым
+        реальный Twitter Search найдёт настоящие аккаунты.
+        """
+        system = (
+            "Ты помогаешь искать релевантные аккаунты в X (Twitter). "
+            "Для описанной темы канала придумай РАЗНООБРАЗНЫЕ ПОИСКОВЫЕ ЗАПРОСЫ. "
+            "Не придумывай username'ы — мы найдём реальные аккаунты через поиск. "
+            "\n\n"
+            "ОБЯЗАТЕЛЬНО на АНГЛИЙСКОМ (Twitter Search лучше работает с английскими keywords). "
+            "Даже если тема на русском — запросы переведи. "
+            "\n\n"
+            "Каждый запрос — 1-3 слова, короткие, популярные термины из ниши. "
+            "Охватывай разные грани темы: общие термины, специфические, жаргон, профессии, издания. "
+            "Для спорта добавляй названия команд/лиг. Для IT — технологии и роли. "
+            "\n\n"
+            "Отвечай строго JSON-массивом строк, без markdown, без преамбулы."
+        )
+        user = (
+            f"Тема канала: {topic_description}\n\n"
+            f"Дай {count} разных поисковых запросов в X для подбора релевантных аккаунтов. "
+            f"Верни JSON-массив из {count} строк, только keywords. "
+            "Пример: [\"machine learning\", \"AI research\", \"deep learning\", \"LLM\"]"
+        )
+
+        result = await self._call_with_retry(system, user, max_tokens=500)
+        if not result:
+            return None
+
+        clean = result.strip()
+        if clean.startswith("```"):
+            lines = clean.split("\n")
+            clean = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+        try:
+            data = json.loads(clean)
+        except Exception:
+            logger.warning("LLM returned invalid JSON for suggest_search_queries: %s", clean[:300])
+            return None
+
+        if not isinstance(data, list):
+            return None
+
+        queries = []
+        for item in data:
+            if isinstance(item, str) and 2 <= len(item.strip()) <= 80:
+                queries.append(item.strip())
+        return queries if queries else None
+
     async def _call_with_retry(
         self, system_prompt: str, user_prompt: str, max_tokens: int
     ) -> str | None:
