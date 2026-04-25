@@ -216,6 +216,21 @@ async def cmd_channels(message: Message) -> None:
 
         # Последний пост
         last = last_posts.get(ch.id)
+        from datetime import timedelta as _td
+
+        # Подсчитаем отказы за последние 24ч для этого канала
+        from db.models import RejectionLog
+        from sqlalchemy import select as _sel, func as _func
+        async with session_maker()() as _s:
+            _cnt = await _s.execute(
+                _sel(_func.count(RejectionLog.id))
+                .where(
+                    RejectionLog.channel_id == ch.id,
+                    RejectionLog.rejected_at > now - _td(hours=24),
+                )
+            )
+            rejections_count = int(_cnt.scalar_one() or 0)
+
         if last:
             delta = now - last
             if delta.total_seconds() < 3600:
@@ -224,17 +239,26 @@ async def cmd_channels(message: Message) -> None:
                 last_info = f"📤 Последний пост: {int(delta.total_seconds() // 3600)}ч назад"
             else:
                 days = delta.days
-                last_info = f"⚠️ Последний пост: {days}д назад — возможны проблемы с фильтром"
+                last_info = f"⚠️ Последний пост: {days}д назад"
         elif ch.target_chat_id:
-            # Канал привязан, но постов ещё не было
-            from datetime import timedelta as _td
             since_create = now - ch.created_at
             if since_create > _td(hours=8):
-                last_info = "⚠️ Постов нет более 8 часов — возможно фильтр отсекает все твиты (политика РФ, наркотики). Попробуй другую тему."
+                last_info = "⚠️ Постов нет более 8 часов"
+            elif since_create > _td(hours=1) and rejections_count >= 3:
+                last_info = (
+                    f"⚠️ Цикл прошёл, но фильтр отсёк {rejections_count} твитов — "
+                    f"тема может содержать политику/медицину. Попробуй другую."
+                )
+            elif since_create > _td(minutes=45):
+                last_info = "⏳ Цикл сбора прошёл, твиты в очереди дайджеста"
             else:
-                last_info = "⏳ Жду первого цикла сбора"
+                last_info = "⏳ Жду первого цикла сбора (до 30 мин)"
         else:
             last_info = ""
+
+        # Если есть отказы — покажем общее число
+        if rejections_count > 0 and ch.target_chat_id:
+            last_info += f"\n  📋 Отказов фильтра за 24ч: {rejections_count}"
 
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
@@ -243,7 +267,13 @@ async def cmd_channels(message: Message) -> None:
             f"  {target_info}\n"
             f"  {last_info}"
         )
-    lines.append("\n<i>Удалить: /deletechannel &lt;id&gt;</i>")
+    lines.append(
+        "\n<b>Управление:</b>\n"
+        "  /sources &lt;id&gt; — источники канала\n"
+        "  /addsource &lt;id&gt; @user — добавить\n"
+        "  /removesource &lt;id&gt; @user — удалить\n"
+        "  /deletechannel &lt;id&gt; — удалить канал"
+    )
     await message.answer("\n\n".join(lines))
 
 
@@ -485,10 +515,21 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
             sources=sources_list,
         )
 
+    # Если выбрано мало источников — узкая тема, предупредим
+    narrow_topic_warning = ""
+    if len(selected) < 8:
+        narrow_topic_warning = (
+            f"\n⚠️ <b>Внимание:</b> для этой темы найдено мало источников ({len(selected)}). "
+            f"Возможно тема слишком узкая — Twitter может не покрывать её хорошо.\n"
+            f"Можешь добавить свои источники командой "
+            f"<code>/addsource {channel.id} @username</code>\n"
+        )
+
     lines = [
         f"✅ <b>Канал создан с реальными источниками из X!</b>\n",
         f"📝 <b>{title}</b> (id={channel.id})\n",
         f"ℹ️ Найдено в X по запросам: {len(filtered)}, выбрано: {len(selected)}\n",
+        narrow_topic_warning,
         f"📡 <b>Источники:</b>",
     ]
     for s in selected[:15]:

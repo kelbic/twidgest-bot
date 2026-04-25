@@ -89,7 +89,7 @@ async def main() -> None:
     )
     scheduler.add_job(
         run_channel_health_cycle,
-        trigger=IntervalTrigger(hours=3),
+        trigger=IntervalTrigger(hours=1),
         kwargs={"bot": bot},
     )
     scheduler.start()

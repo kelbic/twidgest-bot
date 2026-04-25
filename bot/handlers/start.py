@@ -53,6 +53,12 @@ HELP = """\
 /createchannel template &lt;id&gt; — из шаблона
 /createchannel ai &lt;тема&gt; — AI подберёт источники
 /deletechannel &lt;id&gt; — удалить канал
+
+<b>📡 Источники:</b>
+/sources &lt;id&gt; — список источников канала
+/addsource &lt;id&gt; @user — добавить источник
+/removesource &lt;id&gt; @user — удалить источник
+/deletechannel &lt;id&gt; — удалить канал
 /bind &lt;chat_id&gt; &lt;channel_id&gt; — вручную привязать чат
 
 <b>👤 Профиль:</b>

@@ -76,6 +76,21 @@ async def _rejections_last_24h(
     return list(result.scalars().all())
 
 
+async def _rejections_since(
+    session: AsyncSession, channel_id: int, since: timedelta
+) -> list[RejectionLog]:
+    """Возвращает все отказы за указанный период (с момента now-since)."""
+    cutoff = datetime.utcnow() - since
+    result = await session.execute(
+        select(RejectionLog)
+        .where(
+            RejectionLog.channel_id == channel_id,
+            RejectionLog.rejected_at > cutoff,
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def _was_recently_notified(
     session: AsyncSession, channel_id: int
 ) -> bool:
@@ -153,22 +168,34 @@ async def _check_channel(channel: Channel, bot: Bot) -> None:
         last_post = await _last_post_time(session, channel.id)
         now = datetime.utcnow()
 
-        # Если канал создан меньше 24ч назад — даём время разогнаться
-        if (now - channel.created_at) < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
+        age = now - channel.created_at
+
+        # Канал слишком молодой — даже 1 цикла не было, ждём
+        if age < timedelta(minutes=45):
             return
 
-        # Если последний пост был меньше 24ч назад — всё ок
+        # Если последний пост был меньше 24ч назад — всё ок (для старых)
+        # Или канал молодой и ещё не успел опубликовать — всё ок (для молодых)
         if last_post and (now - last_post) < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
             return
 
-        # Канал молчит >= 24ч. Смотрим причину — отказы LLM
-        rejections = await _rejections_last_24h(session, channel.id)
+        # Канал молчит. Смотрим количество отказов LLM
+        rejections = await _rejections_since(session, channel.id, age)
 
-        if len(rejections) < MIN_REJECTIONS_FOR_ALERT:
-            # Мало отказов — возможно просто источники тихие, не алармим
+        # Адаптивный порог в зависимости от возраста канала
+        # Молодой канал (1-3ч) — порог ниже (3 отказа)
+        # Старый канал (24ч+) — порог выше (5 отказов), нужно больше уверенности
+        if age < timedelta(hours=3):
+            min_rejections = 3
+        elif age < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
+            min_rejections = 5
+        else:
+            min_rejections = MIN_REJECTIONS_FOR_ALERT
+
+        if len(rejections) < min_rejections:
             logger.info(
-                "Channel %d silent but only %d rejections — not alerting",
-                channel.id, len(rejections),
+                "Channel %d silent (age %s) but only %d rejections (need %d) — not alerting",
+                channel.id, age, len(rejections), min_rejections,
             )
             return
 
