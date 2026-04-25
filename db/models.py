@@ -230,3 +230,38 @@ class Payment(Base):
     tier: Mapped[str] = mapped_column(String(16))
     telegram_payment_charge_id: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class HealthNotification(Base):
+    """Когда последний раз уведомляли юзера о проблемах с каналом.
+
+    Используется в channel_health воркере, чтобы не спамить уведомлениями.
+    Один канал — максимум одно уведомление в 7 дней.
+    """
+
+    __tablename__ = "health_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    reason: Mapped[str] = mapped_column(String(64))  # 'high_rejection_rate' / 'no_sources_active' / etc
+    sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+class RejectionLog(Base):
+    """Лог отказов LLM по каждому твиту.
+
+    Заполняется когда rewrite_tweet или build_digest вернули None из-за
+    safety/value фильтра. Используется для health-диагностики каналов.
+    """
+
+    __tablename__ = "rejection_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(Integer, index=True)
+    tweet_id: Mapped[str] = mapped_column(String(32))
+    twitter_username: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(String(32))  # 'skip' / 'meta' / 'short' / 'low_engagement'
+    rejected_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+

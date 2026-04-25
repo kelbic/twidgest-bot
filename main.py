@@ -25,6 +25,7 @@ from db.session import init_db, init_engine
 from workers.collector import run_collect_cycle
 from workers.expiry_check import run_expiry_check
 from workers.publisher import run_publish_cycle
+from workers.channel_health import run_channel_health_cycle
 from workers.viral_picker import run_viral_picker_cycle
 
 
@@ -85,6 +86,11 @@ async def main() -> None:
         run_viral_picker_cycle,
         trigger=IntervalTrigger(hours=1),
         kwargs={"bot": bot, "llm_default": llm_default},
+    )
+    scheduler.add_job(
+        run_channel_health_cycle,
+        trigger=IntervalTrigger(hours=3),
+        kwargs={"bot": bot},
     )
     scheduler.start()
     logging.info(

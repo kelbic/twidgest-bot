@@ -172,6 +172,15 @@ async def _process_hybrid_channel(
             rewritten = await _rewrite(llm, top, niche_prompt)
             if not rewritten:
                 # SKIP — НЕ удаляем из очереди, может пойти в digest
+                # Логируем отказ для health-диагностики
+                from db.models import RejectionLog
+                session.add(RejectionLog(
+                    channel_id=channel.id,
+                    tweet_id=top.tweet_id,
+                    twitter_username=top.twitter_username,
+                    reason="skip_viral",
+                ))
+                await session.commit()
                 logger.info(
                     "Channel %d: candidate %d/%d got SKIP, trying next",
                     channel.id, idx, len(candidates),
