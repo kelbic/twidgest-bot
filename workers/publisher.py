@@ -38,7 +38,7 @@ async def _get_digest_channels(session: AsyncSession) -> list[Channel]:
         .join(User, Channel.user_id == User.tg_user_id)
         .where(
             Channel.is_active == True,  # noqa: E712
-            Channel.mode == "digest",
+            Channel.mode.in_(["digest", "hybrid"]),
             Channel.target_chat_id != None,  # noqa: E711
             User.is_blocked == False,  # noqa: E712
         )
@@ -75,7 +75,9 @@ async def _process_channel(
         active = await is_tier_active(user)
     effective_tier = user.tier if active else "free"
     limits = get_limits(effective_tier)
-    llm = llm_pro if limits.use_pro_llm else llm_default
+    # Для дайджестов всегда используем Pro-модель (Sonnet) — редкий вызов,
+    # качество важнее экономии. Single-режим остается на default LLM.
+    llm = llm_pro
 
     interval_h = max(channel.digest_interval_hours, limits.digest_min_interval_hours)
 

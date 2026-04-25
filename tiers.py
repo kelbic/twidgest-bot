@@ -33,9 +33,9 @@ TIERS: dict[Tier, TierLimits] = {
         price_stars=0,
         max_sources=3,
         max_targets=1,
-        max_posts_per_day=5,
-        digest_min_interval_hours=24,
-        can_use_digest_mode=False,
+        max_posts_per_day=10,  # 4 digest + до 6 single
+        digest_min_interval_hours=6,
+        can_use_digest_mode=True,  # разрешим digest на Free
         can_use_custom_prompt=False,
         use_pro_llm=False,
     ),

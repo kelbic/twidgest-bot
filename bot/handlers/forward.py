@@ -68,6 +68,20 @@ async def handle_forwarded_from_channel(message: Message) -> None:
             await set_channel_target(
                 session, channel.id, chat_id, chat_title
             )
+            # Welcome-пост в привязанный канал — мгновенный сигнал что бот живой
+            try:
+                await message.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        "✨ <b>Канал активирован</b>\n\n"
+                        "Я буду публиковать сюда адаптированные посты из X на русском.\n"
+                        "Первый дайджест появится в течение 6 часов. Виральные твиты — ещё быстрее.\n\n"
+                        "<i>Создано через</i> @TwidgestBot"
+                    ),
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                pass
             await message.answer(
                 f"✅ <b>Канал привязан!</b>\n\n"
                 f"📍 <b>{chat_title}</b> → "

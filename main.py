@@ -25,6 +25,7 @@ from db.session import init_db, init_engine
 from workers.collector import run_collect_cycle
 from workers.expiry_check import run_expiry_check
 from workers.publisher import run_publish_cycle
+from workers.viral_picker import run_viral_picker_cycle
 
 
 async def main() -> None:
@@ -80,6 +81,11 @@ async def main() -> None:
         run_expiry_check,
         trigger=IntervalTrigger(hours=24),
     )
+    scheduler.add_job(
+        run_viral_picker_cycle,
+        trigger=IntervalTrigger(hours=1),
+        kwargs={"bot": bot, "llm_default": llm_default},
+    )
     scheduler.start()
     logging.info(
         "Scheduler started: collect every %d min, publish every 1 hour.",
@@ -92,6 +98,7 @@ async def main() -> None:
     # Первый цикл сбора сразу — чтобы не ждать 30 минут после рестарта
     async def _startup_cycle():
         await run_collect_cycle(bot, cache, llm_default, llm_pro)
+        await run_viral_picker_cycle(bot, llm_default)
         await run_publish_cycle(bot, llm_default, llm_pro)
     asyncio.create_task(_startup_cycle())
 

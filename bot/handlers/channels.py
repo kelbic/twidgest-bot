@@ -20,7 +20,11 @@ from tiers import get_limits
 
 # Shared clients for AI-assisted channel creation
 _cfg = Config()
+# Default LLM (Haiku) для всех задач
 _llm = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_default)
+# Smart LLM (Sonnet) для критичных задач: keyword generation, candidate ranking
+# Используется реже, не критично по бюджету
+_llm_smart = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_pro)
 _twitter = TwitterClient(_cfg.twitter_api_key)
 
 router = Router(name="channels")
@@ -165,7 +169,7 @@ async def _create_from_template(message: Message, template_id: str) -> None:
         f"✅ <b>Канал создан!</b>\n\n"
         f"{tpl.emoji} <b>{tpl.name}</b> (id={channel.id})\n"
         f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
-        f"⚙️ Режим: digest, раз в 12 часов\n\n"
+        f"⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
         f"<b>⚠️ Следующий шаг:</b>\n"
         f"1. Создай Telegram-канал\n"
         f"2. Добавь @TwidgestBot админом с правом «Публикация сообщений»\n"
@@ -217,8 +221,27 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
         f"Шаг 1/3: генерирую поисковые запросы..."
     )
 
-    # === Шаг 1: LLM даёт ключевые слова для поиска ===
-    queries = await _llm.suggest_search_queries(topic_description, count=6)
+    # === Шаг 1: Multi-shot keyword generation через Sonnet ===
+    # Делаем 3 параллельных запроса с разными температурами для лучшего покрытия
+    import asyncio as _asyncio
+    query_tasks = [
+        _llm_smart.suggest_search_queries(topic_description, count=5, temperature=0.3),
+        _llm_smart.suggest_search_queries(topic_description, count=5, temperature=0.7),
+        _llm_smart.suggest_search_queries(topic_description, count=5, temperature=1.0),
+    ]
+    query_results = await _asyncio.gather(*query_tasks, return_exceptions=True)
+
+    # Объединяем все keywords из всех попыток, дедупим
+    queries: list[str] = []
+    seen = set()
+    for r in query_results:
+        if isinstance(r, list):
+            for q in r:
+                q_lower = q.lower().strip()
+                if q_lower not in seen:
+                    seen.add(q_lower)
+                    queries.append(q)
+
     if not queries:
         await status_msg.edit_text(
             "⚠️ Не удалось сгенерировать поисковые запросы. Попробуй переформулировать.\n"
@@ -234,7 +257,7 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
 
     # === Шаг 2: Twitter Search по каждому ключевику ===
     all_candidates: dict[str, dict] = {}  # screen_name -> user dict
-    for query in queries[:6]:
+    for query in queries[:10]:
         users = await _twitter.search_users(query, limit=15)
         for u in users:
             sn = u["screen_name"].lower()
@@ -246,21 +269,22 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
                 all_candidates[sn] = u
 
     # Фильтруем низкокачественных: меньше 500 фоловеров или меньше 50 твитов
-    MIN_FOLLOWERS = 300
-    MIN_TWEETS = 30
+    MIN_FOLLOWERS = 1000
+    MIN_TWEETS = 0  # disabled — bigger accounts can be tweet-light
     filtered = [
         u for u in all_candidates.values()
         if u["followers_count"] >= MIN_FOLLOWERS
-        and u["statuses_count"] >= MIN_TWEETS
+        # statuses_count check disabled
     ]
 
     if len(filtered) < 3:
         await status_msg.edit_text(
-            f"⚠️ Для темы «{topic_description}» найдено только {len(filtered)} "
+            f"⚠️ Для темы «{topic_description}» в X найдено только {len(filtered)} "
             f"активных аккаунтов с достаточной аудиторией.\n\n"
-            f"Твиттер слабо покрывает эту нишу. Попробуй:\n"
-            f"1️⃣ Переформулировать более широко или по-английски\n"
-            f"2️⃣ Использовать готовый темплейт: /templates"
+            f"Это узкая или плохо представленная в X ниша. Попробуй:\n"
+            f"1️⃣ Переформулировать на английском (manicure вместо маникюр)\n"
+            f"2️⃣ Сделать тему шире (beauty industry вместо nail care)\n"
+            f"3️⃣ Использовать готовый темплейт: /templates"
         )
         return
 
@@ -297,7 +321,7 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
             niche="general",
             template_id=None,
             description=topic_description,
-            mode="digest",
+            mode="hybrid",
             sources=sources_list,
         )
 
@@ -315,7 +339,7 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
             lines.append(f"  • @{s['username']}")
 
     lines.append(
-        f"\n⚙️ Режим: digest, раз в 12 часов\n\n"
+        f"\n⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
         f"<b>⚠️ Следующий шаг:</b>\n"
         f"1. Создай Telegram-канал\n"
         f"2. Добавь @TwidgestBot админом\n"
@@ -360,7 +384,7 @@ async def _llm_rank_candidates(
         f"Выбери 8-12 лучших для этой темы, верни JSON."
     )
 
-    result = await _llm._call_with_retry(system, user, max_tokens=2000)
+    result = await _llm_smart._call_with_retry(system, user, max_tokens=2000)
     if not result:
         return None
 

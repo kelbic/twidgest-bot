@@ -147,7 +147,10 @@ async def _process_channel(
                 if await is_processed(session, user.tg_user_id, tw.id):
                     continue
 
-                if channel.mode == "digest":
+                # digest и hybrid — всегда в очередь.
+                # Для hybrid отдельный воркер (viral_picker) каждый час берёт топ из очереди.
+                # Для single — постим сразу (логика ниже).
+                if channel.mode in ("digest", "hybrid"):
                     await enqueue_for_digest(
                         session=session,
                         user_id=user.tg_user_id,

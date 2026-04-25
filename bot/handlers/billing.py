@@ -105,7 +105,7 @@ async def cb_buy_tier(call: CallbackQuery) -> None:
             chat_id=call.from_user.id,
             title=f"TwidgestBot {limits.name}",
             description=(
-                f"Подписка на тариф {limits.name} на 30 дней. "
+                f"Доступ к тарифу {limits.name} на 30 дней. "
                 f"{limits.max_sources} источников, "
                 f"до {limits.max_posts_per_day} постов/день."
             ),
@@ -113,7 +113,6 @@ async def cb_buy_tier(call: CallbackQuery) -> None:
             currency="XTR",
             prices=[LabeledPrice(label=f"{limits.name} (30 дней)", amount=limits.price_stars)],
             # Подписочная модель: 30 дней = 2592000 секунд
-            subscription_period=30 * 24 * 60 * 60,
         )
         await call.answer()
     except Exception as exc:
@@ -177,7 +176,7 @@ async def on_successful_payment(message: Message) -> None:
         f"Источников: до <b>{limits.max_sources}</b>\n"
         f"Постов/день: до <b>{limits.max_posts_per_day}</b>\n"
         f"Digest-режим: {'✅' if limits.can_use_digest_mode else '❌'}\n\n"
-        f"Подписка автопродлится через 30 дней. "
+        f"Покупка разовая. Через 30 дней нужно будет купить заново через /upgrade. "
         f"Управление: /payments"
     )
 

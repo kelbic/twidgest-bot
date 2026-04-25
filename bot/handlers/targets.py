@@ -73,7 +73,7 @@ async def cmd_target(message: Message, command: CommandObject) -> None:
         return
 
     mode = parts[1].lower() if len(parts) > 1 else "digest"
-    if mode not in {"single", "digest"}:
+    if mode not in {"single", "digest", "hybrid"}:
         await message.answer("❌ Режим должен быть <code>single</code> или <code>digest</code>.")
         return
 

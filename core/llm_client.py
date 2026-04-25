@@ -277,9 +277,34 @@ class OpenRouterClient:
             + "\n\n---\n\n".join(blocks)
         )
 
-        return await self._call_with_retry(
+        result = await self._call_with_retry(
             system_prompt, user_prompt, max_tokens=1500
         )
+        if not result:
+            return None
+
+        # Защита от мета-ответов: LLM может пожаловаться на качество твитов
+        # вместо генерации дайджеста — это нельзя постить в канал
+        clean = result.strip().lower()
+        meta_markers = (
+            "к сожалению", "извините", "не могу составить", "не подходят для",
+            "пожалуйста, предоставьте", "недостаточно информации", "не вижу",
+            "i'm sorry", "i cannot", "i apologize", "unfortunately the tweets",
+            "please provide", "the provided tweets", "i am unable",
+        )
+        if any(m in clean for m in meta_markers):
+            logger.warning("Digest LLM returned meta-response, skipping. Preview: %s", result[:200])
+            return None
+
+        # Дайджест должен начинаться с эмодзи или <b> заголовка
+        # Если первая строка не похожа на заголовок — тоже мета-ответ
+        first_line = result.strip().split("\n")[0].strip()
+        has_format_marker = any(m in first_line for m in ("🧬", "🌐", "📰", "<b>", "<i>", "**"))
+        if not has_format_marker and len(first_line) > 80:
+            logger.warning("Digest format invalid (no header marker). Preview: %s", first_line[:100])
+            return None
+
+        return result
 
     # ------------------------------------------------------------------ #
     # Internal
@@ -335,13 +360,9 @@ class OpenRouterClient:
 
 
     async def suggest_search_queries(
-        self, topic_description: str, count: int = 4
+        self, topic_description: str, count: int = 6, temperature: float = 0.3
     ) -> list[str] | None:
-        """Для темы канала возвращает список поисковых запросов в X.
-        
-        Вместо угадывания username'ов LLM даёт ключевые слова, по которым
-        реальный Twitter Search найдёт настоящие аккаунты.
-        """
+        """Generates search queries for X. Temperature param allows multi-shot variation."""
         system = (
             "Ты помогаешь искать релевантные аккаунты в X (Twitter). "
             "Для описанной темы канала придумай РАЗНООБРАЗНЫЕ ПОИСКОВЫЕ ЗАПРОСЫ. "
@@ -358,12 +379,23 @@ class OpenRouterClient:
         )
         user = (
             f"Тема канала: {topic_description}\n\n"
-            f"Дай {count} разных поисковых запросов в X для подбора релевантных аккаунтов. "
-            f"Верни JSON-массив из {count} строк, только keywords. "
-            "Пример: [\"machine learning\", \"AI research\", \"deep learning\", \"LLM\"]"
+            f"Дай {count} ОЧЕНЬ КОРОТКИХ поисковых запросов в X (на английском). "
+            f"СТРОГИЕ ПРАВИЛА:\n"
+            f"- Каждый запрос: МАКСИМУМ 2 слова, идеально 1 слово\n"
+            f"- Это бренды, ОРГАНИЗАЦИИ, ИЗДАНИЯ, имена лиг/инструментов\n"
+            f"- Хотя бы 2 запроса про сами организации/издания (для футбола: 'premier league', 'BBC sport')\n"
+            f"- Хотя бы 2 запроса про ключевые сущности (команды/имена/технологии)\n"
+            f"- Не описания и не действия!\n\n"
+            f"ПЛОХО: 'Premier League predictions', 'football match commentary', 'EPL analysis'\n"
+            f"ХОРОШО для футбола: 'premier league', 'EPL', 'sky sports', 'BBC sport', 'football news'\n"
+            f"(добавь конкретные клубы только если тема узкая, для общих лиг — давай ИЗДАНИЯ и ОФИЦИАЛЬНЫЕ источники)\n\n"
+            f"ПЛОХО: 'venture capital insights', 'startup founder advice'\n"
+            f"ХОРОШО: 'YC', 'a16z', 'sequoia', 'paul graham', 'startup', 'venture'\n\n"
+            f"ПЛОХО: 'machine learning research', 'AI safety news'\n"
+            f"ХОРОШО: 'OpenAI', 'Anthropic', 'DeepMind', 'LLM', 'AI'"
         )
 
-        result = await self._call_with_retry(system, user, max_tokens=500)
+        result = await self._call_with_retry(system, user, max_tokens=500, temperature=temperature)
         if not result:
             return None
 
@@ -388,7 +420,8 @@ class OpenRouterClient:
         return queries if queries else None
 
     async def _call_with_retry(
-        self, system_prompt: str, user_prompt: str, max_tokens: int
+        self, system_prompt: str, user_prompt: str, max_tokens: int,
+        temperature: float = 0.3,
     ) -> str | None:
         payload: dict[str, Any] = {
             "model": self.model,
@@ -396,7 +429,7 @@ class OpenRouterClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.3,
+            "temperature": temperature,
             "max_tokens": max_tokens,
         }
 
