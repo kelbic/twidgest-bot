@@ -283,25 +283,46 @@ class OpenRouterClient:
         if not result:
             return None
 
-        # Защита от мета-ответов: LLM может пожаловаться на качество твитов
-        # вместо генерации дайджеста — это нельзя постить в канал
-        clean = result.strip().lower()
-        meta_markers = (
-            "к сожалению", "извините", "не могу составить", "не подходят для",
-            "пожалуйста, предоставьте", "недостаточно информации", "не вижу",
-            "i'm sorry", "i cannot", "i apologize", "unfortunately the tweets",
-            "please provide", "the provided tweets", "i am unable",
-        )
-        if any(m in clean for m in meta_markers):
-            logger.warning("Digest LLM returned meta-response, skipping. Preview: %s", result[:200])
+        # СТРУКТУРНАЯ ЗАЩИТА ДАЙДЖЕСТА
+        # Дайджест ДОЛЖЕН содержать структурные маркеры: эмодзи-заголовок,
+        # минимум 2 <a href> ссылки (на каждый пункт), нумерованные пункты <b>1.
+        # Если этих маркеров нет — это мета-ответ или другая ошибка LLM,
+        # такое нельзя постить в канал подписчика.
+        clean = result.strip()
+        clean_lower = clean.lower()
+
+        # Жёсткая проверка 1: минимум 2 ссылки в дайджесте
+        link_count = clean.count("<a href")
+        if link_count < 2:
+            logger.warning(
+                "Digest has only %d links (need >=2). Preview: %s",
+                link_count, clean[:200],
+            )
             return None
 
-        # Дайджест должен начинаться с эмодзи или <b> заголовка
-        # Если первая строка не похожа на заголовок — тоже мета-ответ
-        first_line = result.strip().split("\n")[0].strip()
-        has_format_marker = any(m in first_line for m in ("🧬", "🌐", "📰", "<b>", "<i>", "**"))
-        if not has_format_marker and len(first_line) > 80:
-            logger.warning("Digest format invalid (no header marker). Preview: %s", first_line[:100])
+        # Жёсткая проверка 2: минимум 2 нумерованных пункта <b>1, <b>2
+        # (это паттерн нашего шаблона дайджеста)
+        import re as _re
+        numbered_items = _re.findall(r"<b>\s*\d+[\.\)]", clean)
+        if len(numbered_items) < 2:
+            logger.warning(
+                "Digest has only %d numbered items (need >=2). Preview: %s",
+                len(numbered_items), clean[:200],
+            )
+            return None
+
+        # Жёсткая проверка 3: дайджест не должен начинаться с извинения
+        # (мета-ответ часто начинается с "К сожалению" / "Извините" / "I'm sorry")
+        first_30 = clean[:30].lower()
+        apology_starts = (
+            "к сожален", "извин", "i'm sorry", "i cannot", "i apologize",
+            "unfortunately", "к огорчению", "приносим извинения",
+        )
+        if any(first_30.startswith(p) for p in apology_starts):
+            logger.warning(
+                "Digest starts with apology — meta-response. Preview: %s",
+                clean[:200],
+            )
             return None
 
         return result

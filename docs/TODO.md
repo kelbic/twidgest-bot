@@ -27,3 +27,9 @@
 
 ## AI source selection — variance reduction
 - [ ] Run 2-3 parallel keyword generations with different temperatures (0.3, 0.7, 1.0) and union results. Sometimes LLM generates good queries, sometimes bad ones. Multiple shots → much higher reliability than single shot.
+
+## UX failure modes (before launch to real users)
+- [ ] Silent failure: if channel has 0 posts after 24h despite active sources, notify owner with diagnostics (filter rejection rate, possible causes, suggested actions)
+- [ ] Pre-create warning: detect "politically risky" topics in description and show warning before channel creation
+- [ ] /channels should show last_post_at and rejection_rate per channel
+- [ ] /channel_stats <id> command for detailed health check on demand

@@ -49,15 +49,131 @@ CREATE_HELP = """\
 
 @router.message(Command("templates"))
 async def cmd_templates(message: Message) -> None:
-    lines = ["📚 <b>Доступные темплейты каналов:</b>\n"]
+    """Список шаблонов с готовыми командами для тапа."""
+    lines = ["📚 <b>Доступные шаблоны каналов:</b>\n"]
     for tpl in list_templates():
+        # Каждая строка содержит готовую команду — Telegram её подсветит
+        # как кликабельную, и при тапе она автоматически отправится
         lines.append(
-            f"{tpl.emoji} <code>{tpl.id}</code> — <b>{tpl.name}</b>\n"
-            f"  {tpl.description}\n"
-            f"  Источников: {len(tpl.default_sources)}"
+            f"{tpl.emoji} <b>{tpl.name}</b> — {tpl.description}\n"
+            f"   📡 Источников: {len(tpl.default_sources)}\n"
+            f"   👉 /createchannel_{tpl.id.replace('-', '_')}"
         )
-    lines.append("\n<i>Создать канал: /createchannel template &lt;id&gt;</i>")
+    lines.append(
+        "\n<i>Тапни команду рядом с нужным шаблоном — канал создастся автоматически.</i>"
+    )
     await message.answer("\n\n".join(lines))
+
+
+# Обработчик команд /createchannel_<template_id>
+@router.message(lambda m: m.text and m.text.startswith("/createchannel_"))
+async def cmd_createchannel_shortcut(message: Message) -> None:
+    """Хендлер для команд вида /createchannel_ai_news, /createchannel_longevity и т.д."""
+    if message.from_user is None or message.text is None:
+        return
+
+    # /createchannel_ai_news → ai_news → ai-news
+    raw = message.text.split()[0]  # игнорируем возможные аргументы
+    template_slug = raw.replace("/createchannel_", "", 1)
+    # В шаблонах id с дефисом, в команде с подчёркиванием — конвертируем
+    template_id = template_slug.replace("_", "-")
+
+    # Проверяем лимит каналов
+    async with session_maker()() as session:
+        user = await get_or_create_user(
+            session, message.from_user.id, message.from_user.username
+        )
+        active = await is_tier_active(user)
+        effective_tier = user.tier if active else "free"
+        limits = get_limits(effective_tier)
+        existing = await get_user_channels(session, user.tg_user_id)
+        if len(existing) >= limits.max_targets:
+            await message.answer(
+                f"❌ Достигнут лимит каналов для тарифа <b>{limits.name}</b>: "
+                f"{limits.max_targets}.\n/upgrade для увеличения."
+            )
+            return
+
+    await _create_from_template(message, template_id)
+
+
+# Удалили callback handler'ы — больше не нужны
+
+
+async def callback_create_template(call) -> None:
+    """Юзер нажал на кнопку темплейта в /templates — создаём канал."""
+    if call.data is None or call.from_user is None or call.message is None:
+        return
+    template_id = call.data.split(":", 1)[1]
+
+    await call.answer("Создаю канал...")
+
+    user_id = call.from_user.id
+    username = call.from_user.username
+    chat_id_to_reply = call.message.chat.id
+
+    async with session_maker()() as session:
+        user = await get_or_create_user(session, user_id, username)
+        active = await is_tier_active(user)
+        effective_tier = user.tier if active else "free"
+        limits = get_limits(effective_tier)
+        existing = await get_user_channels(session, user.tg_user_id)
+        if len(existing) >= limits.max_targets:
+            await call.message.bot.send_message(
+                chat_id=chat_id_to_reply,
+                text=(
+                    f"❌ Достигнут лимит каналов для тарифа <b>{limits.name}</b>: "
+                    f"{limits.max_targets}.\n/upgrade для увеличения."
+                ),
+            )
+            return
+
+    # Найдём темплейт
+    tpl = get_template(template_id)
+    if tpl is None and template_id.isdigit():
+        idx = int(template_id) - 1
+        templates_list = list_templates()
+        if 0 <= idx < len(templates_list):
+            tpl = templates_list[idx]
+
+    if tpl is None:
+        await call.message.bot.send_message(
+            chat_id=chat_id_to_reply,
+            text=f"❌ Темплейт <code>{template_id}</code> не найден.",
+        )
+        return
+
+    # Создаём канал
+    async with session_maker()() as session:
+        channel = await create_channel(
+            session,
+            user_id=user_id,
+            title=tpl.name,
+            niche=tpl.niche,
+            template_id=tpl.id,
+            description=tpl.description,
+            mode="hybrid",  # для шаблонов тоже hybrid
+            sources=tpl.default_sources,
+        )
+
+    sources_preview = ", ".join(f"@{s}" for s in tpl.default_sources[:5])
+    if len(tpl.default_sources) > 5:
+        sources_preview += f" и ещё {len(tpl.default_sources) - 5}"
+
+    await call.message.bot.send_message(
+        chat_id=chat_id_to_reply,
+        text=(
+            f"✅ <b>Канал создан!</b>\n\n"
+            f"{tpl.emoji} <b>{tpl.name}</b> (id={channel.id})\n"
+            f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
+            f"⚙️ Режим: hybrid (4 дайджеста + до 5 виральных постов в день)\n\n"
+            f"<b>⚠️ Следующий шаг:</b>\n"
+            f"1. Создай Telegram-канал\n"
+            f"2. Добавь @TwidgestBot админом\n"
+            f"3. Перешли мне любое сообщение из канала\n\n"
+            f"Список твоих каналов: /channels"
+        ),
+    )
 
 
 @router.message(Command("channels"))
@@ -76,7 +192,20 @@ async def cmd_channels(message: Message) -> None:
         )
         return
 
+    # Получаем last_post_at для каждого канала
+    from datetime import datetime
+    from sqlalchemy import select, func as sa_func
+    from db.models import PostLog
+
+    async with session_maker()() as session:
+        last_posts_q = await session.execute(
+            select(PostLog.target_id, sa_func.max(PostLog.posted_at))
+            .group_by(PostLog.target_id)
+        )
+        last_posts = {row[0]: row[1] for row in last_posts_q.all()}
+
     lines = ["📢 <b>Твои каналы:</b>\n"]
+    now = datetime.utcnow()
     for ch in channels:
         target_info = (
             f"📍 {ch.target_chat_title or ch.target_chat_id}"
@@ -84,12 +213,35 @@ async def cmd_channels(message: Message) -> None:
             else "<i>⚠️ канал не настроен — переслай мне сообщение из канала</i>"
         )
         active = "✅" if ch.is_active else "⏸"
+
+        # Последний пост
+        last = last_posts.get(ch.id)
+        if last:
+            delta = now - last
+            if delta.total_seconds() < 3600:
+                last_info = f"📤 Последний пост: {int(delta.total_seconds() // 60)} мин назад"
+            elif delta.total_seconds() < 86400:
+                last_info = f"📤 Последний пост: {int(delta.total_seconds() // 3600)}ч назад"
+            else:
+                days = delta.days
+                last_info = f"⚠️ Последний пост: {days}д назад — возможны проблемы с фильтром"
+        elif ch.target_chat_id:
+            # Канал привязан, но постов ещё не было
+            from datetime import timedelta as _td
+            since_create = now - ch.created_at
+            if since_create > _td(hours=8):
+                last_info = "⚠️ Постов нет более 8 часов — возможно фильтр отсекает все твиты (политика РФ, наркотики). Попробуй другую тему."
+            else:
+                last_info = "⏳ Жду первого цикла сбора"
+        else:
+            last_info = ""
+
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
-            f"  Тема: {ch.niche}\n"
+            f"  Тема: {ch.niche} | Режим: {ch.mode}\n"
             f"  Источников: {len(ch.channel_sources)}\n"
-            f"  Режим: {ch.mode}\n"
-            f"  {target_info}"
+            f"  {target_info}\n"
+            f"  {last_info}"
         )
     lines.append("\n<i>Удалить: /deletechannel &lt;id&gt;</i>")
     await message.answer("\n\n".join(lines))
@@ -140,12 +292,20 @@ async def _create_from_template(message: Message, template_id: str) -> None:
         return
     template_id = template_id.strip().lower()
     tpl = get_template(template_id)
+
+    # Если по id не найдено — может это число (позиция в списке)
+    if tpl is None and template_id.isdigit():
+        idx = int(template_id) - 1  # 1-indexed для юзера
+        templates = list_templates()
+        if 0 <= idx < len(templates):
+            tpl = templates[idx]
+
     if tpl is None:
         valid = ", ".join(TEMPLATES.keys())
         await message.answer(
             f"❌ Темплейт <code>{template_id}</code> не найден.\n\n"
             f"Доступные: {valid}\n\n"
-            f"Список с описанием: /templates"
+            f"Проще всего — нажать кнопку в /templates"
         )
         return
 
