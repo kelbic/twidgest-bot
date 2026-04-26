@@ -114,3 +114,27 @@ Each preset = different prompt for `rewrite_tweet` LLM call.
 - [ ] All existing channels get `filter_preset='news'` (preserve current behavior)
 - [ ] Document in user notification when feature ships:
   "Your channels keep the strict news filter — change with /setfilter"
+
+## Filter presets (attempted, rolled back — see below)
+
+**Status:** infrastructure prepared, not wired up. Reverted late at night
+because regex-based prompt patching kept failing, and risk of breaking
+production was too high.
+
+**Already done (safe to use later):**
+- `filter_presets.py` module with 3 presets: news/community/entertainment
+- `Channel.filter_preset` column in DB (defaults to 'news')
+- All existing channels migrated with default 'news' preset
+
+**TODO when picking up:**
+- Refactor `core/llm_client.py` so SINGLE_SYSTEM_PROMPT becomes a function
+  `build_single_system_prompt(preset_code)` — better to do this cleanly
+  with proper string templating, NOT regex on multi-line constant
+- Wire up `rewrite_tweet(filter_preset=...)` parameter
+- Pass `channel.filter_preset` from collector and viral_picker
+- Add `/setfilter <id> <preset>` and `/filters` commands
+- Update `/createchannel ai` to suggest preset based on description
+- Update landing + USER_GUIDE with filter presets explanation
+
+**Lesson learned:** never refactor multi-line string constants late at night
+with regex. Either rewrite the file cleanly in one editor session, or skip.

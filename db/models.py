@@ -82,6 +82,7 @@ class Channel(Base):
     # Статус
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     images_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    filter_preset: Mapped[str] = mapped_column(String(32), default="news")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="channels")
