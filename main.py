@@ -17,6 +17,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from bot.handlers import admin, billing, channels, forward, sources, start, targets
 from bot.middlewares.admin_check import AdminOnlyMiddleware
+from bot.middlewares.rate_limit import RateLimitMiddleware
 from config import Config
 from core.llm_client import OpenRouterClient
 from core.twitter_cache import TwitterCache
@@ -53,6 +54,9 @@ async def main() -> None:
     dp.include_router(billing.router)
     dp.include_router(forward.router)
     dp.include_router(channels.router)
+
+    # Rate limiting на все user-команды (admin исключается через ADMIN_USER_ID)
+    dp.message.middleware(RateLimitMiddleware(admin_user_id=cfg.admin_user_id))
     # Admin router — только для ADMIN_USER_ID
     admin.router.message.middleware(AdminOnlyMiddleware(cfg.admin_user_id))
     dp.include_router(admin.router)
