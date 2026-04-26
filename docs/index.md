@@ -26,6 +26,16 @@ description: Multi-tenant Telegram-бот для автоматизации но
 .section h2 { font-size: 1.8rem; margin-bottom: 1em; }
 .section h3 { font-size: 1.3rem; margin-top: 1.5em; }
 
+/* Скрываем дублирующий sidebar-footer темы Minimal на главной */
+.wrapper > section > p:last-of-type a[href*="legal"],
+header p:has(a[href*="legal"]) { display: none; }
+
+/* Better mobile padding */
+@media (max-width: 600px) {
+  .hero { padding: 30px 15px; }
+  .section { padding: 30px 15px; }
+}
+
 .steps { display: grid; gap: 24px; margin: 30px 0; }
 .step {
   display: flex;
