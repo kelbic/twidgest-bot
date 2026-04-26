@@ -308,21 +308,29 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
                 all_candidates[sn] = u
 
     MIN_FOLLOWERS = 1000
-    filtered = [
+    # Сначала пробуем без старых
+    filtered_new_only = [
         u for u in all_candidates.values()
         if u["followers_count"] >= MIN_FOLLOWERS
         and u["screen_name"].lower() not in previous_sources
     ]
-    # Если фильтр убрал всё — это значит Twitter Search дал те же что были
-    # В таком случае ослабляем — просто берём всех новых, но бот предупредит
-    if len(filtered) < 5:
-        # Возвращаем всех (включая старых) но в reason укажем
+
+    # Если новых мало — возвращаем всех (старых тоже, лучше чем ничего)
+    if len(filtered_new_only) >= 6:
+        filtered = filtered_new_only
+        all_new = True
+    else:
         filtered = [u for u in all_candidates.values() if u["followers_count"] >= MIN_FOLLOWERS]
+        all_new = False
 
     if len(filtered) < 3:
         await status_msg.edit_text(
-            f"⚠️ Найдено только {len(filtered)} активных аккаунтов. "
-            f"Тема может быть слишком узкой. Источники не изменены."
+            f"⚠️ Найдено только {len(filtered)} активных аккаунтов с достаточной "
+            f"аудиторией. Тема может быть слишком узкой для Twitter — попробуй:\n\n"
+            f"1. Переформулировать на английском\n"
+            f"2. Сделать тему шире\n"
+            f"3. Использовать готовый шаблон: /templates\n\n"
+            f"Источники не изменены."
         )
         return
 

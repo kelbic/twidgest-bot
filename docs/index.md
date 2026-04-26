@@ -1,5 +1,5 @@
 ---
-layout: default
+layout: landing
 title: TwidgestBot — Twitter в Telegram-канал на автопилоте
 description: Multi-tenant Telegram-бот для автоматизации новостных каналов. Адаптирует твиты из X в посты на русском, публикует в твой канал.
 ---
