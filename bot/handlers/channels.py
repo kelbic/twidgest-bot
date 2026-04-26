@@ -271,7 +271,7 @@ async def cmd_channels(message: Message) -> None:
         )
     lines.append(
         "\n<b>Управление:</b>\n"
-        "  /sources &lt;id&gt; — источники канала\n"
+        "  /sources &lt;id&gt; — источники канала\n  /status &lt;id&gt; — детальная статистика\n"
         "  /addsource &lt;id&gt; @user — добавить\n"
         "  /removesource &lt;id&gt; @user — удалить\n  /regenerate &lt;id&gt; — пересоздать источники\n  /setimages &lt;id&gt; on|off — картинки в канале\n"
         "  /deletechannel &lt;id&gt; — удалить канал"

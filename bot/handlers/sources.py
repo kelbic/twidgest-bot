@@ -485,3 +485,253 @@ async def cmd_setimages(message: Message, command: CommandObject) -> None:
         f"{'Посты будут идти с релевантными фото из Unsplash.' if enable else 'Посты будут только текстом.'}"
     )
 
+
+@router.message(Command("status"))
+async def cmd_status(message: Message, command: CommandObject) -> None:
+    """Детальный статус канала: posts, queue, sources, last fetched tweets, skip reasons."""
+    if message.from_user is None:
+        return
+    if not command.args:
+        await message.answer(
+            "Использование: <code>/status &lt;channel_id&gt;</code>"
+        )
+        return
+
+    try:
+        channel_id = int(command.args.strip().split()[0])
+    except (ValueError, IndexError):
+        await message.answer("❌ ID канала должен быть числом.")
+        return
+
+    channel = await _get_user_channel(message.from_user.id, channel_id)
+    if channel is None:
+        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func as sa_func
+    from db.models import (
+        DigestQueueItem,
+        DigestLog,
+        PostLog,
+        ProcessedTweet,
+        RejectionLog,
+    )
+
+    now = datetime.utcnow()
+    cutoff_24h = now - timedelta(hours=24)
+
+    async with session_maker()() as session:
+        # Посты за 24ч
+        posts_q = await session.execute(
+            select(PostLog.is_digest, sa_func.count(PostLog.id))
+            .where(
+                PostLog.target_id == channel_id,
+                PostLog.posted_at > cutoff_24h,
+            )
+            .group_by(PostLog.is_digest)
+        )
+        posts_breakdown = dict(posts_q.all())
+        single_count = posts_breakdown.get(False, 0) or posts_breakdown.get(0, 0)
+        digest_count = posts_breakdown.get(True, 0) or posts_breakdown.get(1, 0)
+
+        # Последний пост
+        last_post_q = await session.execute(
+            select(sa_func.max(PostLog.posted_at))
+            .where(PostLog.target_id == channel_id)
+        )
+        last_post = last_post_q.scalar_one_or_none()
+
+        # Последний дайджест
+        last_digest_q = await session.execute(
+            select(DigestLog.posted_at)
+            .where(DigestLog.target_id == channel_id)
+            .order_by(DigestLog.posted_at.desc())
+            .limit(1)
+        )
+        last_digest = last_digest_q.scalar_one_or_none()
+
+        # Отказы за 24ч + последний пример каждой причины
+        rejections_q = await session.execute(
+            select(RejectionLog.reason, sa_func.count(RejectionLog.id))
+            .where(
+                RejectionLog.channel_id == channel_id,
+                RejectionLog.rejected_at > cutoff_24h,
+            )
+            .group_by(RejectionLog.reason)
+        )
+        rejections_by_reason = dict(rejections_q.all())
+        total_rejections = sum(rejections_by_reason.values())
+
+        # Последний обработанный твит на источник
+        # Берём processed_tweets — самый свежий per twitter_username
+        last_tweets_q = await session.execute(
+            select(
+                ProcessedTweet.twitter_username,
+                sa_func.max(ProcessedTweet.processed_at),
+            )
+            .where(ProcessedTweet.user_id == channel.user_id)
+            .group_by(ProcessedTweet.twitter_username)
+        )
+        last_tweet_by_source = dict(last_tweets_q.all())
+
+        # Очередь дайджеста по источникам
+        queue_q = await session.execute(
+            select(
+                DigestQueueItem.twitter_username,
+                sa_func.count(DigestQueueItem.id),
+            )
+            .where(DigestQueueItem.channel_id == channel_id)
+            .group_by(DigestQueueItem.twitter_username)
+        )
+        queue_by_source = dict(queue_q.all())
+        total_in_queue = sum(queue_by_source.values())
+
+        # Последний rejection per source — для понимания "что было отклонено"
+        last_reject_q = await session.execute(
+            select(
+                RejectionLog.twitter_username,
+                RejectionLog.reason,
+                RejectionLog.rejected_at,
+            )
+            .where(
+                RejectionLog.channel_id == channel_id,
+                RejectionLog.rejected_at > cutoff_24h,
+            )
+            .order_by(RejectionLog.rejected_at.desc())
+            .limit(50)
+        )
+        last_rejects = list(last_reject_q.all())
+        # Группируем по source, берём самый свежий
+        last_reject_by_source = {}
+        for username, reason, ts in last_rejects:
+            if username not in last_reject_by_source:
+                last_reject_by_source[username] = (reason, ts)
+
+        sources = list(channel.channel_sources)
+
+    # ====== Формируем ответ ======
+    parts = []
+
+    title = f"📊 <b>Канал «{channel.title}»</b> (id={channel_id})"
+    parts.append(title)
+
+    images_str = "🖼 картинки on" if channel.images_enabled else "📝 без картинок"
+    parts.append(
+        f"🎯 Тема: <code>{channel.niche}</code> | "
+        f"Режим: <code>{channel.mode}</code> | {images_str}"
+    )
+
+    target_str = channel.target_chat_title or (
+        str(channel.target_chat_id) if channel.target_chat_id else "не привязан"
+    )
+    parts.append(f"📍 Куда постит: {target_str}")
+
+    age = now - channel.created_at
+    if age.days > 0:
+        age_str = f"{age.days}д {age.seconds // 3600}ч назад"
+    elif age.seconds > 3600:
+        age_str = f"{age.seconds // 3600}ч назад"
+    else:
+        age_str = f"{age.seconds // 60}м назад"
+    parts.append(
+        f"⏱ Создан: {channel.created_at.strftime('%d.%m, %H:%M')} ({age_str})"
+    )
+
+    # === Активность за 24 часа ===
+    parts.append("")
+    parts.append("📈 <b>Активность за 24 часа</b>")
+    total_posts = single_count + digest_count
+    parts.append(
+        f"  Опубликовано: <b>{total_posts}</b> "
+        f"({single_count} single + {digest_count} digest)"
+    )
+
+    if last_post:
+        delta = now - last_post
+        if delta.total_seconds() < 3600:
+            last_str = f"{int(delta.total_seconds() // 60)}м назад"
+        elif delta.total_seconds() < 86400:
+            last_str = f"{int(delta.total_seconds() // 3600)}ч назад"
+        else:
+            last_str = f"{delta.days}д назад"
+        parts.append(f"  Последний пост: {last_str}")
+    else:
+        parts.append("  Последний пост: <i>пока не было</i>")
+
+    if total_rejections > 0:
+        rej_str = ", ".join(
+            f"{cnt} <code>{reason}</code>"
+            for reason, cnt in sorted(rejections_by_reason.items(), key=lambda x: -x[1])
+        )
+        parts.append(f"  Отказов фильтра: <b>{total_rejections}</b> ({rej_str})")
+
+    # === Источники с детализацией ===
+    parts.append("")
+    parts.append(f"📡 <b>Источники ({len(sources)})</b>")
+
+    if not sources:
+        parts.append("  <i>не настроены</i>")
+    else:
+        for src in sources:
+            uname = src.twitter_username
+            queue_count = queue_by_source.get(uname, 0)
+            last_seen = last_tweet_by_source.get(uname)
+            reject_info = last_reject_by_source.get(uname)
+
+            # Иконка статуса
+            if queue_count > 0:
+                icon = "✅"
+                status_text = f"{queue_count} в очереди"
+            elif reject_info:
+                icon = "⏸"
+                reason, ts = reject_info
+                status_text = f"отклонено ({reason})"
+            elif last_seen:
+                delta = now - last_seen
+                if delta.total_seconds() < 3600:
+                    seen_ago = f"{int(delta.total_seconds() // 60)}м"
+                elif delta.total_seconds() < 86400:
+                    seen_ago = f"{int(delta.total_seconds() // 3600)}ч"
+                else:
+                    seen_ago = f"{delta.days}д"
+                icon = "👁"
+                status_text = f"видели {seen_ago} назад"
+            else:
+                icon = "⚠️"
+                status_text = "ни одного твита"
+
+            parts.append(f"  {icon} @{uname} — {status_text}")
+
+    # === Очередь и расписание ===
+    parts.append("")
+    parts.append(f"🗂 В очереди дайджеста: <b>{total_in_queue}</b>")
+
+    if channel.mode in ("digest", "hybrid"):
+        if last_digest:
+            next_digest_at = last_digest + timedelta(hours=channel.digest_interval_hours)
+            time_to_next = next_digest_at - now
+            if time_to_next.total_seconds() > 0:
+                hours_left = int(time_to_next.total_seconds() // 3600)
+                mins_left = int((time_to_next.total_seconds() % 3600) // 60)
+                if hours_left > 0:
+                    parts.append(f"⏰ Следующий дайджест: ~через {hours_left}ч {mins_left}м")
+                else:
+                    parts.append(f"⏰ Следующий дайджест: ~через {mins_left}м")
+            else:
+                parts.append("⏰ Следующий дайджест: при ближайшем publisher cycle")
+        else:
+            parts.append("⏰ Первый дайджест: при ближайшем publisher cycle")
+
+    # === Команды ===
+    parts.append("")
+    parts.append("🛠 <b>Команды:</b>")
+    parts.append(f"  <code>/sources {channel_id}</code> — управление источниками")
+    parts.append(f"  <code>/regenerate {channel_id}</code> — пересоздать через AI")
+    images_cmd = "off" if channel.images_enabled else "on"
+    parts.append(f"  <code>/setimages {channel_id} {images_cmd}</code> — переключить картинки")
+    parts.append(f"  <code>/deletechannel {channel_id}</code> — удалить канал")
+
+    # Используем настоящие переносы строк
+    text = "\n".join(parts)
+    await message.answer(text)
