@@ -73,3 +73,44 @@ Likely requests (in order of probability):
 - [ ] Per-channel analytics (subscriber growth, post engagement)
 - [ ] Custom prompts for AI filter (advanced users)
 - [ ] Higher tier: dedicated support + custom development
+
+## Customizable value filter (post-MVP, high impact)
+
+**Problem:** Current value filter is hardcoded for "newsworthy" content.
+It rejects 95%+ of content for channels where the natural format is
+different (fan accounts, memes, personal opinions, sport reactions).
+Real example from production: F1 channel — all 7 sources are official
+team accounts that post mostly retweets, sponsor announcements, and
+match reactions. Filter rejects all of them as "not newsworthy".
+
+### Filter preset templates
+- [ ] `news` — current behavior (factual events, no opinions/reactions)
+- [ ] `community` — accepts opinions, reactions, polls, fan content
+- [ ] `expert` — accepts personal takes from credible sources
+- [ ] `entertainment` — accepts memes, jokes, light content
+- [ ] `analytical` — only data-rich, long-form posts
+
+Each preset = different prompt for `rewrite_tweet` LLM call.
+
+### Per-channel filter config
+- [ ] `Channel.filter_preset` column (default: 'news' to preserve current)
+- [ ] `/setfilter <channel_id> <preset>` command
+- [ ] `/filters` command — list available presets with descriptions
+- [ ] Hint in `/status` showing current preset
+
+### Custom prompt (Pro+ only)
+- [ ] `Channel.custom_filter_prompt` (TEXT, nullable)
+- [ ] `/setcustomfilter <channel_id>` — multi-step dialog to enter prompt
+- [ ] Validation: max 500 chars, no jailbreak attempts
+- [ ] Falls back to preset if custom returns broken output
+
+### Onboarding integration
+- [ ] When creating channel via /createchannel ai, ask user about
+  desired content type (news / opinions / mixed)
+- [ ] AI suggests preset based on description (e.g. "memes" → entertainment preset)
+- [ ] Show preset choice in channel creation confirmation
+
+### Migration safety
+- [ ] All existing channels get `filter_preset='news'` (preserve current behavior)
+- [ ] Document in user notification when feature ships:
+  "Your channels keep the strict news filter — change with /setfilter"
