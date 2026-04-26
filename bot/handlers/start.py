@@ -15,6 +15,8 @@ router = Router(name="start")
 WELCOME = """\
 👋 Привет! Я <b>TwidgestBot</b> — автоматизирую новостные каналы в Telegram.
 
+<i>Используя бота, вы принимаете <a href="https://kelbic.github.io/twidgest-bot/legal/terms.html">условия использования</a> и <a href="https://kelbic.github.io/twidgest-bot/legal/privacy.html">политику конфиденциальности</a>.</i>
+
 <b>Что я умею:</b>
 - Слежу за твиттер-аккаунтами и постлю их контент тебе в канал
 - Перевожу твиты на русский через ИИ
@@ -100,7 +102,7 @@ async def cmd_start(message: Message) -> None:
             tg_user_id=message.from_user.id,
             tg_username=message.from_user.username,
         )
-    await message.answer(WELCOME)
+    await message.answer(WELCOME, disable_web_page_preview=True)
 
 
 @router.message(Command("help"))
@@ -138,3 +140,19 @@ async def cmd_me(message: Message) -> None:
             f"Хотите больше? /upgrade"
         )
         await message.answer(text)
+
+
+@router.message(Command("legal"))
+async def cmd_legal(message: Message) -> None:
+    text = (
+        "📜 <b>Юридическая информация</b>\n\n"
+        "<a href=\"https://kelbic.github.io/twidgest-bot/legal/privacy.html\">"
+        "Политика конфиденциальности</a>\n"
+        "<a href=\"https://kelbic.github.io/twidgest-bot/legal/terms.html\">"
+        "Пользовательское соглашение</a>\n\n"
+        "Используя бота, вы соглашаетесь с условиями указанных документов.\n\n"
+        "Вопросы? Создайте issue в "
+        "<a href=\"https://github.com/kelbic/twidgest-bot/issues\">GitHub</a>."
+    )
+    await message.answer(text, disable_web_page_preview=True)
+
