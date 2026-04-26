@@ -127,15 +127,20 @@ async def _process_hybrid_channel(
             "viral_picker: processing channel %d (%s)", channel.id, channel.title
         )
 
-        # Pacing
+        # Pacing — для новых каналов (<24ч) уменьшаем интервал
+        # чтобы юзер быстро увидел результат продукта
         last_single = await _last_single_post_time(session, channel.id)
         now = datetime.utcnow()
-        if last_single and (now - last_single) < timedelta(
-            minutes=SINGLE_POST_PACING_MINUTES
-        ):
+        channel_age = now - channel.created_at
+        if channel_age < timedelta(hours=24):
+            pacing_minutes = 15  # активация: до 4 виральных в час
+        else:
+            pacing_minutes = SINGLE_POST_PACING_MINUTES  # 30 мин (default)
+
+        if last_single and (now - last_single) < timedelta(minutes=pacing_minutes):
             logger.info(
-                "Channel %d: last single was %s ago, skipping pacing",
-                channel.id, now - last_single,
+                "Channel %d: last single was %s ago, skipping pacing (age=%s, pacing=%dm)",
+                channel.id, now - last_single, channel_age, pacing_minutes,
             )
             return
 
