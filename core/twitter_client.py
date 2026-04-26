@@ -92,32 +92,93 @@ class Tweet:
 
 
 class TwitterClient:
+    """Клиент twitterapi.io с retry и exp backoff."""
+
+    # HTTP-коды на которых ретраим
+    _RETRYABLE_HTTP = {408, 429, 500, 502, 503, 504}
+    _MAX_ATTEMPTS = 3
+    _BASE_DELAY = 2.0  # начальная пауза, потом 2x на каждую попытку
+
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
         self._headers = {"X-API-Key": api_key}
+
+    async def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        params: dict | None = None,
+        timeout: int = 30,
+    ) -> dict | None:
+        """Универсальный запрос с retry на временных ошибках."""
+        import asyncio as _asyncio
+
+        last_error = "unknown"
+        for attempt in range(1, self._MAX_ATTEMPTS + 1):
+            try:
+                async with aiohttp.ClientSession(headers=self._headers) as session:
+                    async with session.request(
+                        method, url, params=params, timeout=timeout
+                    ) as resp:
+                        if resp.status == 200:
+                            try:
+                                data = await resp.json()
+                                if attempt > 1:
+                                    logger.info(
+                                        "twitterapi.io: succeeded on attempt %d/%d",
+                                        attempt, self._MAX_ATTEMPTS,
+                                    )
+                                return data
+                            except Exception as exc:
+                                last_error = f"bad JSON: {exc}"
+                        elif resp.status in self._RETRYABLE_HTTP:
+                            body = await resp.text()
+                            last_error = f"HTTP {resp.status}: {body[:200]}"
+                            logger.warning(
+                                "twitterapi.io retryable error attempt %d/%d: %s",
+                                attempt, self._MAX_ATTEMPTS, last_error,
+                            )
+                        else:
+                            # Non-retryable — сразу возвращаем None
+                            body = await resp.text()
+                            logger.error(
+                                "twitterapi.io non-retryable HTTP %d: %s",
+                                resp.status, body[:200],
+                            )
+                            return None
+            except _asyncio.TimeoutError:
+                last_error = f"timeout after {timeout}s"
+                logger.warning(
+                    "twitterapi.io timeout attempt %d/%d (URL: %s)",
+                    attempt, self._MAX_ATTEMPTS, url,
+                )
+            except aiohttp.ClientError as exc:
+                last_error = f"network error: {exc}"
+                logger.warning(
+                    "twitterapi.io network error attempt %d/%d: %s",
+                    attempt, self._MAX_ATTEMPTS, last_error,
+                )
+            except Exception:
+                logger.exception("twitterapi.io unexpected error")
+                return None
+
+            # Если не последняя попытка — ждём с exp backoff
+            if attempt < self._MAX_ATTEMPTS:
+                delay = self._BASE_DELAY * (2 ** (attempt - 1))  # 2s, 4s, 8s
+                await _asyncio.sleep(delay)
+
+        logger.error(
+            "twitterapi.io exhausted %d attempts. Last error: %s",
+            self._MAX_ATTEMPTS, last_error,
+        )
+        return None
 
     async def get_user_tweets(self, username: str, limit: int = 20) -> list[Tweet]:
         params = {"userName": username}
         url = f"{BASE_URL}/twitter/user/last_tweets"
 
-        try:
-            async with aiohttp.ClientSession(headers=self._headers) as session:
-                async with session.get(url, params=params, timeout=30) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        logger.error(
-                            "twitterapi.io HTTP %s for @%s: %s",
-                            resp.status, username, body[:300],
-                        )
-                        return []
-                    data = await resp.json()
-        except Exception:
-            logger.exception("Network error fetching @%s", username)
-            return []
-
-        # API всегда возвращает {"data": {"tweets": [...]}, "status": ...}
-        if not isinstance(data, dict):
-            logger.warning("Unexpected response type for @%s: %s", username, type(data))
+        data = await self._request_with_retry("GET", url, params=params, timeout=30)
+        if not data or not isinstance(data, dict):
             return []
 
         if data.get("status") != "success":
@@ -143,62 +204,13 @@ class TwitterClient:
 
         logger.info("Fetched %d tweets for @%s", len(tweets), username)
         return tweets
-    async def validate_usernames(
-        self, usernames: list[str]
-    ) -> dict[str, bool]:
-        """Для каждого username делаем 1 get_user_tweets, считаем живым если >= 1 твит.
 
-        Возвращает {username: is_alive}.
-        """
-        import asyncio as _asyncio
-
-        async def _check(username: str) -> tuple[str, bool]:
-            try:
-                tweets = await self.get_user_tweets(username, limit=5)
-                return username, len(tweets) > 0
-            except Exception:
-                logger.exception("validate failed for @%s", username)
-                return username, False
-
-        # Параллельно, но с ограничением — API не любит 20 RPS
-        results: dict[str, bool] = {}
-        semaphore = _asyncio.Semaphore(5)
-
-        async def _bounded(u: str):
-            async with semaphore:
-                u_clean, alive = await _check(u)
-                results[u_clean] = alive
-
-        await _asyncio.gather(*(_bounded(u.lstrip("@").strip()) for u in usernames if u.strip()))
-        return results
-    async def search_users(
-        self, query: str, limit: int = 20
-    ) -> list[dict]:
-        """Поиск реальных аккаунтов X по ключевым словам.
-
-        Возвращает список dict с полями:
-        - screen_name (реальный @username, без @)
-        - name (отображаемое имя)
-        - description (био)
-        - followers_count
-        - statuses_count
-        - is_verified (Blue Verified)
-        """
+    async def search_users(self, query: str, limit: int = 20) -> list[dict]:
         url = f"{BASE_URL}/twitter/user/search"
         params = {"query": query, "limit": str(limit)}
-        try:
-            async with aiohttp.ClientSession(headers=self._headers) as session:
-                async with session.get(url, params=params, timeout=30) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        logger.error(
-                            "search_users HTTP %s for query=%r: %s",
-                            resp.status, query, body[:300],
-                        )
-                        return []
-                    data = await resp.json()
-        except Exception:
-            logger.exception("Network error in search_users(%r)", query)
+
+        data = await self._request_with_retry("GET", url, params=params, timeout=30)
+        if not data or not isinstance(data, dict):
             return []
 
         users_raw = data.get("users") or data.get("data", {}).get("users") or []
@@ -222,3 +234,27 @@ class TwitterClient:
         logger.info("search_users(%r): %d users found", query, len(result))
         return result
 
+    async def validate_usernames(
+        self, usernames: list[str]
+    ) -> dict[str, bool]:
+        """Параллельная валидация существования аккаунтов."""
+        import asyncio as _asyncio
+
+        async def _check(username: str) -> tuple[str, bool]:
+            try:
+                tweets = await self.get_user_tweets(username, limit=5)
+                return username, len(tweets) > 0
+            except Exception:
+                logger.exception("validate failed for @%s", username)
+                return username, False
+
+        results: dict[str, bool] = {}
+        semaphore = _asyncio.Semaphore(5)
+
+        async def _bounded(u: str):
+            async with semaphore:
+                u_clean, alive = await _check(u)
+                results[u_clean] = alive
+
+        await _asyncio.gather(*(_bounded(u.lstrip("@").strip()) for u in usernames if u.strip()))
+        return results
