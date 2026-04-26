@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.llm_client import OpenRouterClient
+from config import Config
+from core.image_picker import fetch_image_url_for_keywords
 from core.safe_sender import send_to_target
+from core.topic_dedup import compute_topic_signature, is_duplicate_topic
 from core.twitter_cache import TwitterCache
 from core.twitter_client import Tweet
 from db.models import Channel, User
@@ -30,6 +33,8 @@ from niches import build_single_prompt
 from tiers import get_limits
 
 logger = logging.getLogger(__name__)
+
+_cfg_unsplash = Config()
 
 
 async def _get_active_channels(session: AsyncSession) -> list[Channel]:
@@ -161,11 +166,24 @@ async def _process_channel(
                         url=tw.url,
                         likes=tw.likes,
                         retweets=tw.retweets,
+                        media_url=tw.media_url,
                     )
                     await mark_processed(session, user.tg_user_id, tw.id, tw.username)
                     continue
 
                 # SINGLE mode
+                # Проверяем дубликат темы — не публикуем то что уже было
+                is_dup, sim, _ = await is_duplicate_topic(
+                    session, channel.id, tw.text
+                )
+                if is_dup:
+                    await mark_processed(session, user.tg_user_id, tw.id, tw.username)
+                    logger.info(
+                        "Channel %d: tweet %s is duplicate (sim=%.2f), skipping",
+                        channel.id, tw.id, sim,
+                    )
+                    continue
+
                 today = await posts_today(session, user.tg_user_id)
                 if today >= limits.max_posts_per_day:
                     logger.info(
@@ -180,10 +198,36 @@ async def _process_channel(
                     logger.info("Skipped tweet %s (LLM SKIP)", tw.id)
                     continue
 
-                ok = await send_to_target(bot, session, fake_target, rewritten)
+                # Подбираем картинку через LLM keywords + Unsplash API
+                photo_url = None
+                if (
+                    channel.images_enabled
+                    and _cfg_unsplash.unsplash_access_key
+                ):
+                    try:
+                        keywords = await llm.suggest_image_keywords(rewritten)
+                        if keywords:
+                            photo_url = await fetch_image_url_for_keywords(
+                                keywords, _cfg_unsplash.unsplash_access_key
+                            )
+                            if photo_url:
+                                logger.info(
+                                    "Channel %d: image found via '%s'",
+                                    channel.id, keywords,
+                                )
+                    except Exception:
+                        logger.exception("Image fetch failed, posting without image")
+
+                ok = await send_to_target(
+                    bot, session, fake_target, rewritten,
+                    photo_url=photo_url,
+                )
                 if ok:
                     await mark_processed(session, user.tg_user_id, tw.id, tw.username)
-                    await log_post(session, user.tg_user_id, channel.id, is_digest=False)
+                    await log_post(
+                        session, user.tg_user_id, channel.id, is_digest=False,
+                        topic_signature=compute_topic_signature(tw.text),
+                    )
                     logger.info(
                         "Posted tweet %s to channel=%d (chat=%d)",
                         tw.id, channel.id, channel.target_chat_id,

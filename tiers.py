@@ -31,10 +31,10 @@ TIERS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
         name="Free",
         price_stars=0,
-        max_sources=3,
-        max_targets=1,
-        max_posts_per_day=10,  # 4 digest + до 6 single
-        digest_min_interval_hours=6,
+        max_sources=10,         # было 3
+        max_targets=3,          # было 1
+        max_posts_per_day=50,   # было 10 — щедро для теста
+        digest_min_interval_hours=4,  # было 6 — чаще для теста
         can_use_digest_mode=True,  # разрешим digest на Free
         can_use_custom_prompt=False,
         use_pro_llm=False,

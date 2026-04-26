@@ -81,6 +81,7 @@ class Channel(Base):
 
     # Статус
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    images_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="channels")
@@ -186,13 +187,19 @@ class DigestQueueItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True)
-    channel_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    channel_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("channels.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     tweet_id: Mapped[str] = mapped_column(String(32))
     twitter_username: Mapped[str] = mapped_column(String(32))
     text: Mapped[str] = mapped_column(Text)
     url: Mapped[str] = mapped_column(String(512))
     likes: Mapped[int] = mapped_column(Integer, default=0)
     retweets: Mapped[int] = mapped_column(Integer, default=0)
+    media_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     queued_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -206,6 +213,7 @@ class PostLog(Base):
         DateTime, server_default=func.now(), index=True
     )
     is_digest: Mapped[bool] = mapped_column(Boolean, default=False)
+    topic_signature: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class DigestLog(Base):

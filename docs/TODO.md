@@ -33,3 +33,18 @@
 - [ ] Pre-create warning: detect "politically risky" topics in description and show warning before channel creation
 - [ ] /channels should show last_post_at and rejection_rate per channel
 - [ ] /channel_stats <id> command for detailed health check on demand
+
+## Pictures (deferred)
+- [ ] Tweet images: twitterapi.io does NOT return media URLs (verified Apr 2026).
+  Options:
+  - Use Unsplash API by topic keywords (chosen path if needed)
+  - Scrape t.co URLs from oEmbed (against Twitter TOS)
+  - Use other Twitter API provider that returns media
+- [ ] /setbanner <channel_id> command — user uploads custom image to use as banner for all posts in channel
+
+## Image rate limits (scale concern)
+- Unsplash free tier: 50 req/hour. Enough for ~25-50 channels at typical activity.
+- At 100+ active channels: need either paid Unsplash ($59/mo for 5000 req/h)
+  OR cache keyword→URL mapping (24h TTL) to dedupe identical queries
+  OR multi-provider fallback (Pexels, Pixabay)
+- Current MVP: monitor Unsplash 403 responses, add cache when we hit them regularly

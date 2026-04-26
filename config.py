@@ -45,4 +45,8 @@ class Config:
         default_factory=lambda: int(os.getenv("COLLECT_INTERVAL_MINUTES", "30"))
     )
 
+    unsplash_access_key: str = field(
+        default_factory=lambda: os.getenv("UNSPLASH_ACCESS_KEY", "GTyxCLBrKY-eFAU6a5GFSE1nk1DwTB4S5Ilf6kQVcOM")
+    )
+
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))

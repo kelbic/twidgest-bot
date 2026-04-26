@@ -18,7 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.llm_client import OpenRouterClient
+from config import Config
+from core.image_picker import fetch_image_url_for_keywords
 from core.safe_sender import send_to_target
+from core.topic_dedup import compute_topic_signature, is_duplicate_topic
 from db.models import Channel, DigestQueueItem, PostLog, User
 from db.repositories.tweets import clear_digest_items, log_post, posts_today
 from db.repositories.users import is_tier_active
@@ -27,6 +30,8 @@ from niches import build_single_prompt
 from tiers import get_limits
 
 logger = logging.getLogger(__name__)
+
+_cfg_unsplash = Config()
 
 # Сколько топ-кандидатов перебираем за один цикл
 TOP_CANDIDATES_TO_TRY = 5
@@ -169,6 +174,17 @@ async def _process_hybrid_channel(
                 top.twitter_username, top.likes,
             )
 
+            # Проверка на дубликат темы — главный фикс
+            is_dup, sim, _ = await is_duplicate_topic(
+                session, channel.id, top.text
+            )
+            if is_dup:
+                logger.info(
+                    "Channel %d: candidate %d is duplicate (sim=%.2f) of recent post, skipping",
+                    channel.id, idx, sim,
+                )
+                continue
+
             rewritten = await _rewrite(llm, top, niche_prompt)
             if not rewritten:
                 # SKIP — НЕ удаляем из очереди, может пойти в digest
@@ -194,12 +210,36 @@ async def _process_hybrid_channel(
                 "is_active": True,
             })()
 
-            ok = await send_to_target(bot, session, fake_target, rewritten)
+            # Подбираем релевантную картинку через LLM keywords + Unsplash API
+            photo_url = None
+            if (
+                channel.images_enabled
+                and _cfg_unsplash.unsplash_access_key
+            ):
+                try:
+                    keywords = await llm.suggest_image_keywords(rewritten)
+                    if keywords:
+                        photo_url = await fetch_image_url_for_keywords(
+                            keywords, _cfg_unsplash.unsplash_access_key
+                        )
+                        if photo_url:
+                            logger.info(
+                                "Channel %d: image found via '%s'",
+                                channel.id, keywords,
+                            )
+                except Exception:
+                    logger.exception("Image fetch failed, posting without image")
+
+            ok = await send_to_target(
+                bot, session, fake_target, rewritten,
+                photo_url=photo_url,
+            )
             if ok:
                 # Только успешно опубликованный твит удаляем из очереди
                 await clear_digest_items(session, [top.id])
                 await log_post(
-                    session, user.tg_user_id, channel.id, is_digest=False
+                    session, user.tg_user_id, channel.id, is_digest=False,
+                    topic_signature=compute_topic_signature(top.text),
                 )
                 logger.info(
                     "Channel %d (hybrid): posted viral tweet @%s likes=%d",

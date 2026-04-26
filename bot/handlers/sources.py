@@ -14,7 +14,8 @@ from sqlalchemy import select
 
 from config import Config
 from core.twitter_client import TwitterClient
-from db.models import Channel, ChannelSource
+from db.models import Channel, ChannelSource, DigestQueueItem
+from core.llm_client import OpenRouterClient
 from db.repositories.users import get_or_create_user
 from db.session import session_maker
 
@@ -22,6 +23,8 @@ router = Router(name="channel_sources")
 
 _cfg = Config()
 _twitter = TwitterClient(_cfg.twitter_api_key)
+_llm_default = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_default)
+_llm_smart = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_pro)
 
 
 def _parse_args(text: str | None, expected: int) -> tuple | None:
@@ -197,15 +200,288 @@ async def cmd_removesource(message: Message, command: CommandObject) -> None:
         return
 
     async with session_maker()() as session:
-        # Удаляем явно через delete
         from sqlalchemy import delete as sa_delete
+        from db.models import DigestQueueItem
+
+        # Удаляем источник
         await session.execute(
             sa_delete(ChannelSource).where(ChannelSource.id == target_source.id)
+        )
+        # Удаляем из digest_queue все твиты этого автора в этом канале
+        deleted_q = await session.execute(
+            sa_delete(DigestQueueItem).where(
+                DigestQueueItem.channel_id == channel_id,
+                DigestQueueItem.twitter_username == username,
+            )
         )
         await session.commit()
 
     remaining = len(channel.channel_sources) - 1
+    cleaned = deleted_q.rowcount or 0
+    cleanup_note = f"\n🧹 Также удалено {cleaned} ожидающих твитов из очереди." if cleaned > 0 else ""
     await message.answer(
         f"🗑 Источник <b>@{username}</b> удалён из канала <b>{channel.title}</b>.\n\n"
-        f"Осталось источников: {remaining}"
+        f"Осталось источников: {remaining}{cleanup_note}"
     )
+
+
+@router.message(Command("regenerate"))
+async def cmd_regenerate(message: Message, command: CommandObject) -> None:
+    """Перегенерация источников канала через AI."""
+    if message.from_user is None:
+        return
+    if not command.args:
+        await message.answer(
+            "Использование: <code>/regenerate &lt;channel_id&gt;</code>\n\n"
+            "Полностью пересоздаёт список источников канала через AI-подбор. "
+            "Тема канала остаётся прежней. Старые источники и накопленные "
+            "твиты удаляются."
+        )
+        return
+
+    try:
+        channel_id = int(command.args.strip().split()[0])
+    except (ValueError, IndexError):
+        await message.answer("❌ ID канала должен быть числом.")
+        return
+
+    channel = await _get_user_channel(message.from_user.id, channel_id)
+    if channel is None:
+        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    # Сохраним старые источники чтобы исключить их при регенерации
+    previous_sources = [s.twitter_username.lower() for s in channel.channel_sources]
+
+    description = channel.description or channel.title
+    if not description or len(description) < 10:
+        await message.answer(
+            f"❌ Невозможно перегенерировать — у канала нет описания темы. "
+            f"Создай новый через /createchannel."
+        )
+        return
+
+    status_msg = await message.answer(
+        f"🔄 Перегенерирую источники для «{channel.title}»...\n"
+        f"Тема: <i>{description}</i>\n"
+        f"Шаг 1/3: генерирую новые поисковые запросы..."
+    )
+
+    # Step 1: Multi-shot keyword generation
+    import asyncio as _asyncio
+    query_tasks = [
+        _llm_smart.suggest_search_queries(description, count=5, temperature=0.3),
+        _llm_smart.suggest_search_queries(description, count=5, temperature=0.7),
+        _llm_smart.suggest_search_queries(description, count=5, temperature=1.0),
+    ]
+    query_results = await _asyncio.gather(*query_tasks, return_exceptions=True)
+    queries = []
+    seen = set()
+    for r in query_results:
+        if isinstance(r, list):
+            for q in r:
+                ql = q.lower().strip()
+                if ql not in seen:
+                    seen.add(ql)
+                    queries.append(q)
+
+    if not queries:
+        await status_msg.edit_text("⚠️ Не удалось сгенерировать запросы. Попробуй позже.")
+        return
+
+    queries_display = ", ".join(f"<code>{q}</code>" for q in queries[:6])
+    await status_msg.edit_text(
+        f"🔄 Перегенерирую источники для «{channel.title}»\n"
+        f"Шаг 2/3: ищу аккаунты в X по {len(queries)} запросам:\n{queries_display}"
+    )
+
+    # Step 2: Twitter search для каждого keyword
+    all_candidates: dict = {}
+    for query in queries[:10]:
+        users = await _twitter.search_users(query, limit=15)
+        for u in users:
+            sn = u["screen_name"].lower()
+            if sn in all_candidates:
+                if u["followers_count"] > all_candidates[sn]["followers_count"]:
+                    all_candidates[sn] = u
+            else:
+                all_candidates[sn] = u
+
+    MIN_FOLLOWERS = 1000
+    filtered = [
+        u for u in all_candidates.values()
+        if u["followers_count"] >= MIN_FOLLOWERS
+        and u["screen_name"].lower() not in previous_sources
+    ]
+    # Если фильтр убрал всё — это значит Twitter Search дал те же что были
+    # В таком случае ослабляем — просто берём всех новых, но бот предупредит
+    if len(filtered) < 5:
+        # Возвращаем всех (включая старых) но в reason укажем
+        filtered = [u for u in all_candidates.values() if u["followers_count"] >= MIN_FOLLOWERS]
+
+    if len(filtered) < 3:
+        await status_msg.edit_text(
+            f"⚠️ Найдено только {len(filtered)} активных аккаунтов. "
+            f"Тема может быть слишком узкой. Источники не изменены."
+        )
+        return
+
+    filtered.sort(key=lambda u: u["followers_count"], reverse=True)
+    top_candidates = filtered[:30]
+
+    await status_msg.edit_text(
+        f"🔄 Перегенерирую источники для «{channel.title}»\n"
+        f"Шаг 3/3: нашёл {len(filtered)} кандидатов, выбираю самых релевантных..."
+    )
+
+    # Step 3: LLM rank — переиспользуем _llm_rank_candidates из channels.py
+    # Дублируем логику здесь чтобы не делать circular import
+    import json as _json
+    candidate_list = [
+        {
+            "username": c["screen_name"],
+            "name": c["name"],
+            "bio": c["description"][:200],
+            "followers": c["followers_count"],
+        }
+        for c in top_candidates
+    ]
+    system = (
+        "Ты помогаешь отобрать лучшие X-аккаунты для тематического канала. "
+        "Тебе дан список РЕАЛЬНЫХ аккаунтов с описаниями и подписчиками. "
+        "Выбери из них 8-12 самых релевантных теме канала и объясни выбор. "
+        "Отвечай строго JSON-массивом, без преамбулы, без markdown. "
+        "Формат: [{\"username\": \"...\", \"reason\": \"короткое объяснение\"}, ...]. "
+        "Исключай личные/спам аккаунты, NSFW, fan-страницы, дубликаты по теме."
+    )
+    avoid_hint = ""
+    if previous_sources:
+        avoid_hint = (
+            f"\n\nВАЖНО: Юзер ПРЕДЫДУЩИМ запросом получил эти источники: "
+            f"{', '.join('@' + p for p in previous_sources[:15])}\n"
+            f"Они оказались НЕРЕЛЕВАНТНЫМИ. Постарайся выбрать ДРУГИЕ источники "
+            f"из списка кандидатов. Если из 8-12 выбранных хотя бы половина "
+            f"новых — это хорошо. Если все кандидаты те же — выбери лучших, "
+            f"но добавь объяснение в reason."
+        )
+
+    user_prompt = (
+        f"Тема канала: {description}\n\n"
+        f"Кандидаты:\n{_json.dumps(candidate_list, ensure_ascii=False, indent=1)}\n\n"
+        f"Выбери 8-12 лучших, верни JSON.{avoid_hint}"
+    )
+    rank_result = await _llm_smart._call_with_retry(system, user_prompt, max_tokens=2000)
+
+    selected = []
+    if rank_result:
+        clean = rank_result.strip()
+        if clean.startswith("```"):
+            lines = clean.split("\n")
+            clean = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+        try:
+            data = _json.loads(clean)
+            valid_names = {c["screen_name"].lower() for c in top_candidates}
+            for item in data if isinstance(data, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                uname = str(item.get("username", "")).lstrip("@").strip()
+                if uname.lower() in valid_names:
+                    selected.append({"username": uname, "reason": str(item.get("reason", ""))})
+        except Exception:
+            pass
+
+    if not selected or len(selected) < 3:
+        # Fallback: просто топ по followers
+        selected = [
+            {"username": c["screen_name"], "reason": f"{c['followers_count']:,} подписчиков"}
+            for c in top_candidates[:10]
+        ]
+
+    # Step 4: Заменяем источники в БД
+    from sqlalchemy import delete as sa_delete
+    async with session_maker()() as session:
+        # Удаляем старые источники
+        await session.execute(
+            sa_delete(ChannelSource).where(ChannelSource.channel_id == channel_id)
+        )
+        # Чистим digest_queue (старые твиты от удалённых источников)
+        await session.execute(
+            sa_delete(DigestQueueItem).where(DigestQueueItem.channel_id == channel_id)
+        )
+        # Добавляем новые
+        for s in selected:
+            session.add(ChannelSource(
+                channel_id=channel_id,
+                twitter_username=s["username"],
+                is_active=True,
+            ))
+        await session.commit()
+
+    # Show result
+    lines = [
+        f"✅ <b>Источники перегенерированы!</b>\n",
+        f"📝 <b>{channel.title}</b> (id={channel_id})\n",
+        f"📡 <b>Новые источники ({len(selected)}):</b>",
+    ]
+    for s in selected[:15]:
+        reason = s.get("reason", "").strip()
+        if reason:
+            lines.append(f"  • @{s['username']} — {reason}")
+        else:
+            lines.append(f"  • @{s['username']}")
+
+    lines.append(
+        f"\n⚠️ Старые твиты в очереди удалены. "
+        f"Бот начнёт собирать с новых источников в следующем цикле (до 30 мин)."
+    )
+    await status_msg.edit_text("\n".join(lines))
+
+
+@router.message(Command("setimages"))
+async def cmd_setimages(message: Message, command: CommandObject) -> None:
+    """Включить/выключить картинки для канала."""
+    if message.from_user is None:
+        return
+    args = _parse_args(command.args, 2)
+    if not args:
+        await message.answer(
+            "Использование: <code>/setimages &lt;channel_id&gt; on|off</code>\n\n"
+            "<code>on</code> — посты будут с картинками (Unsplash)\n"
+            "<code>off</code> — только текст"
+        )
+        return
+
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("❌ ID канала должен быть числом.")
+        return
+
+    state = args[1].lower()
+    if state not in ("on", "off", "true", "false", "1", "0"):
+        await message.answer("❌ Используй: <code>on</code> или <code>off</code>")
+        return
+
+    enable = state in ("on", "true", "1")
+
+    channel = await _get_user_channel(message.from_user.id, channel_id)
+    if channel is None:
+        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    from sqlalchemy import update as sa_update
+    async with session_maker()() as session:
+        await session.execute(
+            sa_update(Channel)
+            .where(Channel.id == channel_id)
+            .values(images_enabled=enable)
+        )
+        await session.commit()
+
+    state_emoji = "🖼" if enable else "📝"
+    state_text = "включены" if enable else "отключены"
+    await message.answer(
+        f"{state_emoji} Картинки в канале «{channel.title}» <b>{state_text}</b>.\n\n"
+        f"{'Посты будут идти с релевантными фото из Unsplash.' if enable else 'Посты будут только текстом.'}"
+    )
+

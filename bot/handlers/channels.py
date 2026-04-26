@@ -33,17 +33,18 @@ router = Router(name="channels")
 CREATE_HELP = """\
 🎯 <b>Создание канала</b>
 
-<b>Способ 1 — готовый темплейт:</b>
+<b>Способ 1 — описание темы:</b>
+Просто напиши тему после команды:
+<code>/createchannel крикет, премьер-лига Индии</code>
+<code>/createchannel новости AI и LLM</code>
+
+Бот найдёт релевантные аккаунты в X, проверит их активность и создаст канал.
+
+<b>Способ 2 — готовый шаблон:</b>
 <code>/createchannel template &lt;id&gt;</code>
 Пример: <code>/createchannel template ai-news</code>
 
-Доступные темплейты: /templates
-
-<b>Способ 2 — описание темы (AI-генерация):</b>
-<code>/createchannel ai &lt;описание&gt;</code>
-Пример: <code>/createchannel ai крикет, премьер-лига Индии</code>
-
-<i>AI-режим проверяет каждый источник на существование и активность перед сохранением.</i>
+Список шаблонов: /templates
 """
 
 
@@ -260,9 +261,10 @@ async def cmd_channels(message: Message) -> None:
         if rejections_count > 0 and ch.target_chat_id:
             last_info += f"\n  📋 Отказов фильтра за 24ч: {rejections_count}"
 
+        images_status = "🖼" if ch.images_enabled else "📝"
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
-            f"  Тема: {ch.niche} | Режим: {ch.mode}\n"
+            f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status}\n"
             f"  Источников: {len(ch.channel_sources)}\n"
             f"  {target_info}\n"
             f"  {last_info}"
@@ -271,7 +273,7 @@ async def cmd_channels(message: Message) -> None:
         "\n<b>Управление:</b>\n"
         "  /sources &lt;id&gt; — источники канала\n"
         "  /addsource &lt;id&gt; @user — добавить\n"
-        "  /removesource &lt;id&gt; @user — удалить\n"
+        "  /removesource &lt;id&gt; @user — удалить\n  /regenerate &lt;id&gt; — пересоздать источники\n  /setimages &lt;id&gt; on|off — картинки в канале\n"
         "  /deletechannel &lt;id&gt; — удалить канал"
     )
     await message.answer("\n\n".join(lines))
@@ -286,12 +288,31 @@ async def cmd_createchannel(message: Message, command: CommandObject) -> None:
         return
 
     parts = command.args.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer(CREATE_HELP)
-        return
 
-    method = parts[0].lower()
-    rest = parts[1].strip()
+    # Логика выбора метода:
+    # - /createchannel template <id>  — явный шаблон
+    # - /createchannel ai <тема>      — явный AI (обратная совместимость)
+    # - /createchannel <любой текст>  — AI по умолчанию (UX-friendly)
+    first_word = parts[0].lower() if parts else ""
+    if first_word == "template":
+        if len(parts) < 2:
+            await message.answer(CREATE_HELP)
+            return
+        method = "template"
+        rest = parts[1].strip()
+    elif first_word == "ai":
+        if len(parts) < 2:
+            await message.answer(
+                "Опиши тему канала. Пример:\n"
+                "<code>/createchannel крикет, премьер-лига Индии</code>"
+            )
+            return
+        method = "ai"
+        rest = parts[1].strip()
+    else:
+        # Любой текст после /createchannel = AI с этим описанием
+        method = "ai"
+        rest = command.args.strip()
 
     async with session_maker()() as session:
         user = await get_or_create_user(
@@ -347,7 +368,7 @@ async def _create_from_template(message: Message, template_id: str) -> None:
             niche=tpl.niche,
             template_id=tpl.id,
             description=tpl.description,
-            mode="digest",
+            mode="hybrid",
             sources=tpl.default_sources,
         )
 

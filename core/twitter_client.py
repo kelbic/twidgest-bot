@@ -23,6 +23,7 @@ class Tweet:
     is_reply: bool
     url: str
     created_at: str
+    media_url: str | None = None
 
     @property
     def engagement(self) -> int:
@@ -33,6 +34,10 @@ class Tweet:
         author = data.get("author") or {}
         username = (author.get("userName") or author.get("screen_name") or "").lstrip("@")
         tweet_id = str(data.get("id") or "")
+
+        # Парсим media — пробуем разные структуры (твиттер API менялся со временем)
+        media_url = cls._extract_media_url(data)
+
         return cls(
             id=tweet_id,
             username=username,
@@ -43,7 +48,47 @@ class Tweet:
             is_reply=bool(data.get("isReply")),
             url=data.get("url") or f"https://x.com/{username}/status/{tweet_id}",
             created_at=data.get("createdAt") or "",
+            media_url=media_url,
         )
+
+    @staticmethod
+    def _extract_media_url(data: dict[str, Any]) -> str | None:
+        """Извлекает URL картинки из твита. Пробует разные структуры API."""
+        # Вариант 1: extendedEntities.media (Twitter API v1.1)
+        ext = data.get("extendedEntities") or {}
+        media_list = ext.get("media") or []
+        for m in media_list:
+            if m.get("type") == "photo":
+                url = m.get("media_url_https") or m.get("media_url")
+                if url:
+                    return url
+
+        # Вариант 2: entities.media
+        ent = data.get("entities") or {}
+        media_list = ent.get("media") or []
+        for m in media_list:
+            if m.get("type") == "photo":
+                url = m.get("media_url_https") or m.get("media_url")
+                if url:
+                    return url
+
+        # Вариант 3: attachments + includes (Twitter API v2 style)
+        attachments = data.get("attachments") or {}
+        media_keys = attachments.get("media_keys") or []
+        if media_keys:
+            # Тут нужно мап через includes — сложнее, пока не делаем
+            pass
+
+        # Вариант 4: media field directly
+        direct_media = data.get("media") or []
+        if isinstance(direct_media, list):
+            for m in direct_media:
+                if isinstance(m, dict) and m.get("type") == "photo":
+                    url = m.get("media_url_https") or m.get("url")
+                    if url:
+                        return url
+
+        return None
 
 
 class TwitterClient:

@@ -58,6 +58,7 @@ HELP = """\
 /sources &lt;id&gt; — список источников канала
 /addsource &lt;id&gt; @user — добавить источник
 /removesource &lt;id&gt; @user — удалить источник
+/regenerate &lt;id&gt; — перегенерить все источники канала через AI
 /deletechannel &lt;id&gt; — удалить канал
 /bind &lt;chat_id&gt; &lt;channel_id&gt; — вручную привязать чат
 

@@ -440,6 +440,40 @@ class OpenRouterClient:
                 queries.append(item.strip())
         return queries if queries else None
 
+
+    async def suggest_image_keywords(
+        self, post_text: str
+    ) -> str | None:
+        """Для поста на русском возвращает 1-3 английских keywords для подбора картинки.
+
+        Используется ПОСЛЕ rewrite_tweet, на готовом русском тексте поста.
+        """
+        system = (
+            "You're an image-search keyword extractor. Given a Russian-language news post, "
+            "return 1-3 English keywords that describe the visual subject best for stock photo search. "
+            "Return ONLY the keywords separated by spaces, no quotes, no explanation. "
+            "Examples:\n"
+            "- Post about F1 race in Turkey → 'formula1 racing'\n"
+            "- Post about manicure trends → 'manicure pink nails'\n"
+            "- Post about NASA rocket launch → 'rocket launch space'\n"
+            "- Post about politics → 'government building flag'\n"
+            "- Post about AI startup → 'artificial intelligence technology'"
+        )
+        user = f"Russian post:\n{post_text[:500]}\n\nKeywords (1-3 English words):"
+
+        result = await self._call_with_retry(system, user, max_tokens=30, temperature=0.3)
+        if not result:
+            return None
+
+        # Чистим: только английские буквы, цифры, пробелы
+        import re as _re
+        clean = _re.sub(r"[^A-Za-z0-9 ]+", " ", result).strip()
+        clean = _re.sub(r"\s+", " ", clean)
+        words = clean.split()[:3]
+        if not words:
+            return None
+        return " ".join(words)
+
     async def _call_with_retry(
         self, system_prompt: str, user_prompt: str, max_tokens: int,
         temperature: float = 0.3,

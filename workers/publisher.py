@@ -82,11 +82,26 @@ async def _process_channel(
     interval_h = max(channel.digest_interval_hours, limits.digest_min_interval_hours)
 
     async with session_maker()() as session:
+        logger.info(
+            "publisher: processing channel %d (%s, mode=%s, niche=%s)",
+            channel.id, channel.title, channel.mode, channel.niche,
+        )
         # Когда последний раз публиковали для этого канала
         last = await last_digest_time(session, user.tg_user_id, channel.id)
         now = datetime.utcnow()
+        logger.info(
+            "publisher: channel %d last_digest=%s, now=%s, interval_h=%d",
+            channel.id, last, now, interval_h,
+        )
+        # Если уже был дайджест — соблюдаем интервал
+        # Если это первый дайджест канала — публикуем при первой возможности
         if last is not None and (now - last) < timedelta(hours=interval_h):
             return
+        if last is None:
+            logger.info(
+                "Channel %d: first digest — bypassing interval",
+                channel.id,
+            )
 
         today = await posts_today(session, user.tg_user_id)
         if today >= limits.max_posts_per_day:
@@ -99,6 +114,10 @@ async def _process_channel(
             user.tg_user_id,
             channel_id=channel.id,
             max_items=channel.digest_max_tweets,
+        )
+        logger.info(
+            "publisher: channel %d queue size=%d, max_tweets=%d",
+            channel.id, len(queue), channel.digest_max_tweets,
         )
         if len(queue) < 2:
             logger.info(

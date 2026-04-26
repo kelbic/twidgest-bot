@@ -44,6 +44,7 @@ async def enqueue_for_digest(
     url: str,
     likes: int,
     retweets: int,
+    media_url: str | None = None,
 ) -> None:
     item = DigestQueueItem(
         user_id=user_id,
@@ -54,6 +55,7 @@ async def enqueue_for_digest(
         url=url,
         likes=likes,
         retweets=retweets,
+        media_url=media_url,
     )
     session.add(item)
     try:
@@ -118,8 +120,17 @@ async def posts_today(session: AsyncSession, user_id: int) -> int:
 
 
 async def log_post(
-    session: AsyncSession, user_id: int, target_id: int, is_digest: bool
+    session: AsyncSession,
+    user_id: int,
+    target_id: int,
+    is_digest: bool,
+    topic_signature: str | None = None,
 ) -> None:
-    item = PostLog(user_id=user_id, target_id=target_id, is_digest=is_digest)
+    item = PostLog(
+        user_id=user_id,
+        target_id=target_id,
+        is_digest=is_digest,
+        topic_signature=topic_signature,
+    )
     session.add(item)
     await session.commit()

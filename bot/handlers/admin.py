@@ -29,6 +29,9 @@ HELP_TEXT = (
     "  Пример: /admin grant 265715923 pro 30\n\n"
     "/admin revoke USER_ID - даунгрейд в Free\n"
     "/admin user USER_ID - профиль юзера\n"
+    "/admin channels - все каналы всех юзеров\n"
+    "/admin delete_channel CHANNEL_ID - удалить канал (любого юзера)\n"
+    "/admin notify USER_ID TEXT - отправить личное сообщение юзеру\n"
     "/admin stats - общая статистика\n"
     "/admin broadcast TEXT - рассылка всем"
 )
@@ -54,6 +57,12 @@ async def cmd_admin(message: Message, command: CommandObject) -> None:
         await _admin_stats(message)
     elif sub == "broadcast":
         await _admin_broadcast(message, rest)
+    elif sub == "channels":
+        await _admin_channels(message)
+    elif sub in ("delete_channel", "deletechannel"):
+        await _admin_delete_channel(message, rest)
+    elif sub == "notify":
+        await _admin_notify(message, rest)
     else:
         await message.answer(f"Unknown subcommand: {sub}\n\n{HELP_TEXT}")
 
@@ -240,3 +249,154 @@ async def _admin_broadcast(message: Message, args: list) -> None:
         f"  Blocked bot: {blocked}\n"
         f"  Failed: {failed}"
     )
+
+
+async def _admin_channels(message: Message) -> None:
+    """Показать все активные каналы всех юзеров с их статусом."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func as sa_func
+    from sqlalchemy.orm import selectinload
+    from db.models import Channel, PostLog, RejectionLog, User
+    from db.session import session_maker
+
+    async with session_maker()() as session:
+        # Все каналы с привязанным target
+        result = await session.execute(
+            select(Channel)
+            .join(User, Channel.user_id == User.tg_user_id)
+            .options(selectinload(Channel.user), selectinload(Channel.channel_sources))
+            .order_by(Channel.created_at.desc())
+            .limit(50)
+        )
+        channels = list(result.scalars().all())
+
+        # last_post_at для каждого
+        last_posts_q = await session.execute(
+            select(PostLog.target_id, sa_func.max(PostLog.posted_at))
+            .group_by(PostLog.target_id)
+        )
+        last_posts = {row[0]: row[1] for row in last_posts_q.all()}
+
+        # rejection counts за последние 24ч
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        rej_q = await session.execute(
+            select(RejectionLog.channel_id, sa_func.count(RejectionLog.id))
+            .where(RejectionLog.rejected_at > cutoff)
+            .group_by(RejectionLog.channel_id)
+        )
+        rejections = {row[0]: row[1] for row in rej_q.all()}
+
+    if not channels:
+        await message.answer("No channels yet.")
+        return
+
+    now = datetime.utcnow()
+    lines = [f"All channels ({len(channels)} shown):"]
+    for ch in channels:
+        username = ch.user.tg_username or str(ch.user_id)
+        last = last_posts.get(ch.id)
+        if last:
+            delta_h = int((now - last).total_seconds() // 3600)
+            last_str = f"{delta_h}h ago"
+        else:
+            last_str = "never"
+
+        rej = rejections.get(ch.id, 0)
+        target = "BOUND" if ch.target_chat_id else "no_target"
+
+        lines.append(
+            f"#{ch.id} @{username} | {ch.title[:35]}\n"
+            f"   {ch.mode}/{ch.niche} | sources={len(ch.channel_sources)} | "
+            f"last_post={last_str} | rej_24h={rej} | {target}"
+        )
+
+    text = "\n".join(lines)
+    # Telegram limit 4096
+    if len(text) > 4000:
+        text = text[:3900] + "\n\n...truncated"
+    await message.answer(f"<pre>{text}</pre>")
+
+
+async def _admin_delete_channel(message: Message, args: list) -> None:
+    """Удалить канал любого юзера (админская функция)."""
+    if len(args) != 1:
+        await message.answer("Usage: /admin delete_channel CHANNEL_ID")
+        return
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("channel_id must be int.")
+        return
+
+    from sqlalchemy import select, delete as sa_delete
+    from db.models import (
+        Channel, ChannelSource, DigestQueueItem,
+        RejectionLog, HealthNotification,
+    )
+    from db.session import session_maker
+
+    async with session_maker()() as session:
+        # Получаем канал чтобы знать owner
+        result = await session.execute(
+            select(Channel).where(Channel.id == channel_id)
+        )
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Channel {channel_id} not found.")
+            return
+
+        owner_id = channel.user_id
+        title = channel.title
+
+        # Удаляем все связанные данные
+        await session.execute(
+            sa_delete(DigestQueueItem).where(DigestQueueItem.channel_id == channel_id)
+        )
+        await session.execute(
+            sa_delete(RejectionLog).where(RejectionLog.channel_id == channel_id)
+        )
+        await session.execute(
+            sa_delete(HealthNotification).where(HealthNotification.channel_id == channel_id)
+        )
+        await session.execute(
+            sa_delete(ChannelSource).where(ChannelSource.channel_id == channel_id)
+        )
+        await session.delete(channel)
+        await session.commit()
+
+    await message.answer(
+        f"Deleted channel #{channel_id} ({title}) of user {owner_id}.\n"
+        f"Cleaned queue, rejections, notifications, sources."
+    )
+    logger.info(
+        "Admin deleted channel %d (%s) of user %d",
+        channel_id, title, owner_id,
+    )
+
+
+async def _admin_notify(message: Message, args: list) -> None:
+    """Отправить личное сообщение конкретному юзеру."""
+    if len(args) < 2:
+        await message.answer("Usage: /admin notify USER_ID TEXT")
+        return
+    try:
+        user_id = int(args[0])
+    except ValueError:
+        await message.answer("user_id must be int.")
+        return
+    text = " ".join(args[1:])
+    if not text:
+        await message.answer("Empty message text.")
+        return
+
+    bot: Bot = message.bot
+    try:
+        await bot.send_message(user_id, text, disable_web_page_preview=True)
+        await message.answer(f"Sent to user {user_id}.")
+        logger.info("Admin sent notify to user %d: %s", user_id, text[:80])
+    except TelegramForbiddenError:
+        await message.answer(f"User {user_id} blocked the bot.")
+    except Exception as exc:
+        await message.answer(f"Failed to send: {exc}")
+        logger.exception("Admin notify failed")
+
