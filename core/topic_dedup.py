@@ -86,7 +86,7 @@ async def is_duplicate_topic(
     session: AsyncSession,
     channel_id: int,
     new_text: str,
-    similarity_threshold: float = 0.35,
+    similarity_threshold: float = 0.30,
     lookback_hours: int = 24,
     max_recent_posts: int = 10,
 ) -> tuple[bool, float, str | None]:
