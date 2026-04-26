@@ -48,3 +48,28 @@
   OR cache keyword→URL mapping (24h TTL) to dedupe identical queries
   OR multi-provider fallback (Pexels, Pixabay)
 - Current MVP: monitor Unsplash 403 responses, add cache when we hit them regularly
+
+## Phase 2: After first 10 paying users (timeline-based)
+
+### Week 2-3: Stabilization & feedback
+- [ ] Insider Club closed Telegram chat for paying users
+- [ ] Mini-survey in chat: "What's most useful? What's missing?"
+- [ ] Collect 2-3 testimonials/cases for landing
+
+### Week 3-4: Social proof
+- [ ] Add "Cases" section to landing with quotes + numbers
+- [ ] Update cold scripts: "Already helping N admins save time"
+- [ ] Manual referral program: 20% off first month for friends
+
+### Month 2: First paid acquisition
+- [ ] Telegram Ads test (3000₽ budget) — only after 3+ public cases
+- [ ] Partnerships with 2-3 SMM/automation niche channels
+- [ ] vc.ru article: "Как я автоматизировал ведение Telegram-канала"
+
+### Month 2-3: Product evolution based on feedback
+Likely requests (in order of probability):
+- [ ] More source types: RSS, Telegram-channels, news APIs
+- [ ] Custom post style/templates per channel
+- [ ] Per-channel analytics (subscriber growth, post engagement)
+- [ ] Custom prompts for AI filter (advanced users)
+- [ ] Higher tier: dedicated support + custom development
