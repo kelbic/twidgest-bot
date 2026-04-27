@@ -156,3 +156,24 @@ async def cmd_legal(message: Message) -> None:
     )
     await message.answer(text, disable_web_page_preview=True)
 
+
+@router.message(Command("tg_help"))
+async def cmd_tg_help(message: Message) -> None:
+    """Помощь по добавлению Telegram-каналов как источников (manual setup)."""
+    text = (
+        "📡 <b>Telegram-каналы как источники</b>\n\n"
+        "Если твоя тема плохо покрывается X (Twitter) — например, региональные "
+        "новости РФ, узкоспециализированные ниши, русскоязычный контент — "
+        "можно использовать публичные Telegram-каналы как альтернативу.\n\n"
+        "<b>Сейчас это в режиме ручной настройки:</b>\n"
+        "1. Найди 3-5 публичных Telegram-каналов по своей теме\n"
+        "2. Скопируй их usernames (например, @lentaru, @meduzaproject)\n"
+        "3. Напиши администратору <a href=\"https://t.me/kelbic\">@kelbic</a> "
+        "со ссылками — настрою вручную в течение дня\n\n"
+        "Автоматическая интеграция с TGStat API в работе — будет доступна "
+        "следующим этапом для Pro-тарифа.\n\n"
+        "<i>Если ты тестируешь бот для себя — пока продолжай с Twitter-источниками "
+        "или используй /templates с готовой темой.</i>"
+    )
+    await message.answer(text, disable_web_page_preview=True)
+

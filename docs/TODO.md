@@ -210,3 +210,18 @@ Lessons about regex-based code modification:
   is more reliable than regex substitution
 - When replacement script reports "ERROR: not found", DO NOT continue
   with subsequent steps — the file is in inconsistent state
+
+## TG sources — manual mode (validation phase)
+- [x] Added /tg_help command with manual setup instructions
+- [x] Added 4th option in /createchannel ai when Twitter coverage is low
+- [ ] Track how many users use /tg_help (read journalctl manually for now)
+- [ ] If 3+ users actually request TG sources, build full TGStat integration
+- [ ] Until then: handle requests manually via /addsource
+
+## Current technical debt (post-MVP, after first paying users)
+- [ ] Alembic for DB migrations (currently using ALTER TABLE manually)
+- [ ] Move twidgest.db.backup-* files out of repo root, add to .gitignore
+- [ ] Automatic daily DB backups via cron
+- [ ] PostgreSQL migration when SQLite contention becomes real
+- [ ] Split bot polling and worker scheduler into separate processes
+- [ ] Replace fake_target object construction with proper dataclass
