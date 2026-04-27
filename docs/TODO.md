@@ -138,3 +138,34 @@ production was too high.
 
 **Lesson learned:** never refactor multi-line string constants late at night
 with regex. Either rewrite the file cleanly in one editor session, or skip.
+
+## TGStat integration for Russian regional/niche content (post-MVP)
+
+**Why:** Twitter API doesn't cover Russian regional or narrow Russian-language
+niches (Cheboksary news, Russian astrology, Tarot in RU, etc.) — verified
+in production with multiple test channels returning 0 candidates.
+TGStat covers Russian Telegram channels, which is where this content lives.
+
+**Pricing options:**
+- Free tier: 500 req/day (insufficient for SaaS)
+- Standard: 990₽/mo, 5000 req/day (~50-100 active channels)
+- Premium: 4990₽/mo, 50K req/day + content search
+
+**Legal considerations:**
+- Public channels: OK under ГК РФ ст. 1276 (publicly accessible content)
+- Mandatory: source attribution (we already do via "→ Источник" link)
+- LLM-rewrite of original content: transformative use, OK
+- Risk: closed channels (skip them), full text re-publication (we adapt, not copy)
+- Required: add "fair use" clause to /legal
+- Required: user agreement that they have rights to selected sources
+- Required: DMCA-style complaint handling
+
+**Implementation plan:**
+- Separate pipeline `core/tgstat_client.py`
+- AI generates Russian keywords for TGStat search instead of English X keywords
+- Hybrid mode: try Twitter first, fallback to TGStat if 0 results
+- New tier feature: "Pro+ Russia" or "TGStat add-on" — separate paid feature
+- Trigger: only after first 3-5 paying users to validate demand
+
+**Trigger to start:** when 3+ paying users specifically request Russian regional
+content OR when Twitter coverage gap blocks 30%+ of /createchannel attempts.
