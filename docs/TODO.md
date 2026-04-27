@@ -169,3 +169,44 @@ TGStat covers Russian Telegram channels, which is where this content lives.
 
 **Trigger to start:** when 3+ paying users specifically request Russian regional
 content OR when Twitter coverage gap blocks 30%+ of /createchannel attempts.
+
+## Filter presets — refactoring notes (after working impl, 2026-04-27)
+
+What I'd do differently if rebuilding from scratch:
+
+1. Single file `prompts.py` instead of `niches.py + filter_presets.py`.
+   Two separate modules + cross-imports = unnecessary complexity for this scale.
+
+2. Two presets, not three:
+   - `strict`: only concrete facts (current 'news')
+   - `loose`: publish almost everything (current 'community')
+   Current 'entertainment' rejects all news content — proves it's not a
+   real product use case, just architectural overcounting.
+
+3. Don't expose preset metadata in LLM prompt.
+   Currently sends "(preset: community — Комьюнити)" which is noise to LLM.
+   Should be just instructions.
+
+4. `extra_skip_rules` per-niche in niches.py is redundant with filter_preset.
+   Niche should set THEME, not safety rules. Mark deprecated, remove later.
+
+5. Don't keep `SINGLE_SYSTEM_PROMPT` constant as "fallback".
+   Dead code becomes permanent code. (Fixed in option 3.)
+
+6. Don't create separate /admin setfilter handler.
+   Single /setfilter with admin-bypass on ownership check. (Fixed in option 3.)
+
+Lessons about prompt engineering:
+- Detailed whitelist ("publish if: list of cases") makes filter STRICTER
+  than general "publish unless: small blocklist"
+- Toxic instruction "лучше ничего не опубликовать" at top of prompt
+  dominates all subsequent "PUBLISH" rules
+- LLM treats prompt structure cumulatively — adding more text
+  with conflicting instructions = unpredictable behavior
+
+Lessons about regex-based code modification:
+- Multi-line string replacement via Python `.replace()` is fragile
+- For changes to multi-line constants, `cat > file << 'EOF'` (full rewrite)
+  is more reliable than regex substitution
+- When replacement script reports "ERROR: not found", DO NOT continue
+  with subsequent steps — the file is in inconsistent state
