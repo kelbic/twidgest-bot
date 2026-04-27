@@ -9,6 +9,8 @@ from typing import Any
 
 import aiohttp
 
+from filter_presets import build_single_system_prompt
+
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -212,16 +214,25 @@ class OpenRouterClient:
     # Public methods
     # ------------------------------------------------------------------ #
     async def rewrite_tweet(
-        self, tweet_text: str, tweet_url: str, author: str
+        self,
+        tweet_text: str,
+        tweet_url: str,
+        author: str,
+        filter_preset: str = "news",
     ) -> str | None:
-        """Single-режим: один твит → один пост. None если SKIP или ошибка."""
+        """Single-режим: один твит → один пост. None если SKIP или ошибка.
+
+        filter_preset: news | community | entertainment — определяет строгость
+        D-раздела (фильтр ценности). A/B/C разделы фиксированы.
+        """
         user_prompt = (
             f"Автор: @{author}\n"
             f"URL: {tweet_url}\n\n"
             f"Текст твита:\n{tweet_text}"
         )
+        system_prompt = build_single_system_prompt(filter_preset)
         result = await self._call_with_retry(
-            SINGLE_SYSTEM_PROMPT, user_prompt, max_tokens=500
+            system_prompt, user_prompt, max_tokens=500
         )
         if not result:
             return None

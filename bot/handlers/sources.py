@@ -12,6 +12,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 from sqlalchemy import select
 
+from filter_presets import list_presets, get_preset, PRESETS
 from config import Config
 from core.twitter_client import TwitterClient
 from db.models import Channel, ChannelSource, DigestQueueItem
@@ -625,10 +626,13 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     parts.append(title)
 
     images_str = "🖼 картинки on" if channel.images_enabled else "📝 без картинок"
+    _preset = get_preset(channel.filter_preset)
+    filter_str = f"{_preset.emoji} {_preset.name}"
     parts.append(
         f"🎯 Тема: <code>{channel.niche}</code> | "
         f"Режим: <code>{channel.mode}</code> | {images_str}"
     )
+    parts.append(f"🎚 Фильтр: {filter_str} (<code>/setfilter {channel_id} ...</code>)")
 
     target_str = channel.target_chat_title or (
         str(channel.target_chat_id) if channel.target_chat_id else "не привязан"
@@ -743,3 +747,70 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     # Используем настоящие переносы строк
     text = "\n".join(parts)
     await message.answer(text)
+
+
+@router.message(Command("filters"))
+async def cmd_filters(message: Message) -> None:
+    """Список доступных пресетов фильтра ценности."""
+    lines = ["🎚 <b>Доступные пресеты фильтра ценности:</b>\n"]
+    for p in list_presets():
+        lines.append(
+            f"{p.emoji} <code>{p.code}</code> — <b>{p.name}</b>\n"
+            f"  {p.description}"
+        )
+    lines.append("\n<i>Сменить пресет: /setfilter &lt;channel_id&gt; &lt;preset&gt;</i>")
+    lines.append("<i>Например: /setfilter 5 community</i>")
+    await message.answer("\n\n".join(lines))
+
+
+@router.message(Command("setfilter"))
+async def cmd_setfilter(message: Message, command: CommandObject) -> None:
+    """Меняет filter_preset канала."""
+    if message.from_user is None:
+        return
+    args = _parse_args(command.args, 2)
+    if not args:
+        await message.answer(
+            "Использование: <code>/setfilter &lt;channel_id&gt; &lt;preset&gt;</code>\n\n"
+            "Список пресетов: /filters"
+        )
+        return
+
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("❌ ID канала должен быть числом.")
+        return
+
+    preset_code = args[1].lower().strip()
+    if preset_code not in PRESETS:
+        valid = ", ".join(PRESETS.keys())
+        await message.answer(
+            f"❌ Пресет <code>{preset_code}</code> не найден.\n\n"
+            f"Доступные: {valid}\n\n"
+            f"Подробнее: /filters"
+        )
+        return
+
+    channel = await _get_user_channel(message.from_user.id, channel_id)
+    if channel is None:
+        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    from sqlalchemy import update as sa_update
+    async with session_maker()() as session:
+        await session.execute(
+            sa_update(Channel)
+            .where(Channel.id == channel_id)
+            .values(filter_preset=preset_code)
+        )
+        await session.commit()
+
+    preset = get_preset(preset_code)
+    await message.answer(
+        f"{preset.emoji} Фильтр канала <b>«{channel.title}»</b> переключён на "
+        f"<b>{preset.name}</b>.\n\n"
+        f"<i>{preset.description}</i>\n\n"
+        f"Изменения применятся к новым твитам в следующем цикле сбора."
+    )
+

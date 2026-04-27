@@ -115,7 +115,7 @@ async def _process_channel(
     limits = get_limits(effective_tier)
     llm = llm_pro if limits.use_pro_llm else llm_default
 
-    niche_prompt = build_single_prompt(channel.niche)
+    niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
 
     fake_target = type("FakeTarget", (), {
         "id": channel.id,

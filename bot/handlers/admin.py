@@ -32,6 +32,7 @@ HELP_TEXT = (
     "/admin channels - все каналы всех юзеров\n"
     "/admin delete_channel CHANNEL_ID - удалить канал (любого юзера)\n"
     "/admin notify USER_ID TEXT - отправить личное сообщение юзеру\n"
+    "/admin setfilter CHANNEL_ID PRESET - сменить filter_preset любого канала\n"
     "/admin stats - общая статистика\n"
     "/admin broadcast TEXT - рассылка всем"
 )
@@ -63,6 +64,8 @@ async def cmd_admin(message: Message, command: CommandObject) -> None:
         await _admin_delete_channel(message, rest)
     elif sub == "notify":
         await _admin_notify(message, rest)
+    elif sub == "setfilter":
+        await _admin_setfilter(message, rest)
     else:
         await message.answer(f"Unknown subcommand: {sub}\n\n{HELP_TEXT}")
 
@@ -400,3 +403,52 @@ async def _admin_notify(message: Message, args: list) -> None:
         await message.answer(f"Failed to send: {exc}")
         logger.exception("Admin notify failed")
 
+
+
+async def _admin_setfilter(message: Message, args: list) -> None:
+    """Сменить filter_preset любого канала (admin override)."""
+    if len(args) != 2:
+        await message.answer("Usage: /admin setfilter CHANNEL_ID PRESET")
+        return
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("channel_id must be int.")
+        return
+
+    preset_code = args[1].lower().strip()
+    from filter_presets import PRESETS, get_preset
+    if preset_code not in PRESETS:
+        valid = ", ".join(PRESETS.keys())
+        await message.answer(f"Unknown preset. Valid: {valid}")
+        return
+
+    from sqlalchemy import select, update as sa_update
+    from db.models import Channel
+    from db.session import session_maker
+
+    async with session_maker()() as session:
+        result = await session.execute(
+            select(Channel).where(Channel.id == channel_id)
+        )
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Channel {channel_id} not found.")
+            return
+
+        await session.execute(
+            sa_update(Channel)
+            .where(Channel.id == channel_id)
+            .values(filter_preset=preset_code)
+        )
+        await session.commit()
+
+    preset = get_preset(preset_code)
+    await message.answer(
+        f"Channel #{channel_id} ({channel.title}) filter changed to "
+        f"{preset.emoji} {preset.name} (owner: {channel.user_id})."
+    )
+    logger.info(
+        "Admin set filter on channel %d (owner %d) to %s",
+        channel_id, channel.user_id, preset_code,
+    )

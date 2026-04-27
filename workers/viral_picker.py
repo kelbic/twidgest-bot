@@ -161,7 +161,7 @@ async def _process_hybrid_channel(
             logger.info("Channel %d: queue empty, no viral pick", channel.id)
             return
 
-        niche_prompt = build_single_prompt(channel.niche)
+        niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
 
         # Идём по топу, пробуем каждый
         for idx, top in enumerate(candidates, 1):
@@ -223,13 +223,23 @@ async def _process_hybrid_channel(
             ):
                 try:
                     keywords = await llm.suggest_image_keywords(rewritten)
-                    if keywords:
+                    if not keywords:
+                        logger.warning(
+                            "Channel %d: LLM returned empty image keywords for post: %s",
+                            channel.id, rewritten[:80],
+                        )
+                    else:
                         photo_url = await fetch_image_url_for_keywords(
                             keywords, _cfg_unsplash.unsplash_access_key
                         )
                         if photo_url:
                             logger.info(
                                 "Channel %d: image found via '%s'",
+                                channel.id, keywords,
+                            )
+                        else:
+                            logger.warning(
+                                "Channel %d: Unsplash returned no image for keywords=%r",
                                 channel.id, keywords,
                             )
                 except Exception:

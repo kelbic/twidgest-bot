@@ -262,9 +262,13 @@ async def cmd_channels(message: Message) -> None:
             last_info += f"\n  📋 Отказов фильтра за 24ч: {rejections_count}"
 
         images_status = "🖼" if ch.images_enabled else "📝"
+        # filter_preset на отдельной строке чтоб не перегружать
+        from filter_presets import get_preset as _gp
+        _preset = _gp(ch.filter_preset)
+        filter_str = f"{_preset.emoji} {_preset.name}"
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
-            f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status}\n"
+            f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status} | Фильтр: {filter_str}\n"
             f"  Источников: {len(ch.channel_sources)}\n"
             f"  {target_info}\n"
             f"  {last_info}"
