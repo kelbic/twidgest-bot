@@ -12,7 +12,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 from sqlalchemy import select
 
-from filter_presets import list_presets, get_preset, PRESETS
+from prompts import list_filter_modes as list_presets, get_filter_mode as get_preset, FILTER_MODES as PRESETS
 from config import Config
 from core.twitter_client import TwitterClient
 from db.models import Channel, ChannelSource, DigestQueueItem

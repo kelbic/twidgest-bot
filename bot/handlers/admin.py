@@ -417,7 +417,7 @@ async def _admin_setfilter(message: Message, args: list) -> None:
         return
 
     preset_code = args[1].lower().strip()
-    from filter_presets import PRESETS, get_preset
+    from prompts import FILTER_MODES as PRESETS, get_filter_mode as get_preset
     if preset_code not in PRESETS:
         valid = ", ".join(PRESETS.keys())
         await message.answer(f"Unknown preset. Valid: {valid}")

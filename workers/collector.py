@@ -29,7 +29,7 @@ from db.repositories.tweets import (
 )
 from db.repositories.users import is_tier_active
 from db.session import session_maker
-from niches import build_single_prompt
+from prompts import build_single_prompt
 from tiers import get_limits
 
 logger = logging.getLogger(__name__)
