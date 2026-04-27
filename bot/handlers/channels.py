@@ -574,7 +574,13 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
         f"1. Создай Telegram-канал\n"
         f"2. Добавь @TwidgestBot админом\n"
         f"3. Перешли мне любое сообщение из канала\n\n"
-        f"Не нравится? /deletechannel {channel.id}"
+        f"<b>🛠 Управление каналом:</b>\n"
+        f"/status {channel.id} — диагностика канала\n"
+        f"/sources {channel.id} — управление источниками\n"
+        f"/regenerate {channel.id} — пересоздать источники через AI\n"
+        f"/setfilter {channel.id} strict|loose — фильтр (см. /filters)\n"
+        f"/setimages {channel.id} on|off — картинки в канале\n"
+        f"/deletechannel {channel.id} — удалить канал"
     )
     await status_msg.edit_text("\n".join(lines))
 
