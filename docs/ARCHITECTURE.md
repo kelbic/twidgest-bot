@@ -1,9 +1,11 @@
-Y# TwidgestBot — карта проекта для AI-сессий
+# TwidgestBot — карта проекта для AI-сессий
 
 Документ для быстрого онбординга новых Claude/Cursor/Copilot-сессий.
 Содержит: где какая логика, какие файлы трогать, какие — нет.
 
 ## Project structure
+
+```text
 twidgest-bot/
 ├── main.py                       # Entry point: dispatcher + scheduler
 ├── config.py                     # Env config (.env loading)
@@ -28,8 +30,7 @@ twidgest-bot/
 │   │   ├── admin.py              # /admin (grant/revoke/user/stats/
 │   │   │                         #   broadcast/channels/notify/setfilter)
 │   │   ├── billing.py            # /upgrade, Stars payment flow
-│   │   ├── targets.py            # Legacy /target commands
-│   │   └── sources.py (legacy)   # Old /sources commands
+│   │   └── targets.py            # Legacy /target commands
 │   └── middlewares/
 │       ├── admin_check.py        # ADMIN_USER_ID gate
 │       └── rate_limit.py         # Per-user, per-command rate limits
@@ -69,72 +70,73 @@ twidgest-bot/
 │   └── test_content_safety.py    # Integration stubs (manual run, costs API calls)
 │
 └── docs/
-├── ARCHITECTURE.md           # ← THIS FILE
-├── PROJECT_STATUS.md         # State snapshot for new AI sessions
-├── JOURNEY.md                # Project history Roblox → SaaS
-├── USER_GUIDE.md             # End-user documentation
-├── TODO.md                   # Live backlog with technical debt
-└── legal/
-├── privacy.md            # Privacy Policy (RF-compliant)
-└── terms.md              # Terms of Service
+    ├── ARCHITECTURE.md           # ← THIS FILE
+    ├── PROJECT_STATUS.md         # State snapshot for new AI sessions
+    ├── JOURNEY.md                # Project history Roblox → SaaS
+    ├── USER_GUIDE.md             # End-user documentation
+    ├── TODO.md                   # Live backlog with technical debt
+    └── legal/
+        ├── privacy.md            # Privacy Policy (RF-compliant)
+        └── terms.md              # Terms of Service
+```
 
 ## Где какая логика — quick lookup
 
 ### "Хочу изменить как фильтр контента работает"
+
 - Главный файл: `prompts.py`
 - Ключевые константы: `BASE_SAFETY` (A+B+C), `_STRICT_RULES`, `_LOOSE_RULES` (D)
 - Функция: `build_single_prompt(niche, filter_mode)`
-- ⚠️ A/B/C разделы = фиксированные защиты (юр.риски, наркотики, мед.дозировки),
-  трогать только если знаешь что делаешь
+- ⚠️ A/B/C разделы = фиксированные защиты (юр.риски, наркотики, мед.дозировки), трогать только если знаешь что делаешь
 
 ### "Хочу добавить новую команду в бота"
+
 - Создай handler в `bot/handlers/your_command.py`
 - Подключи router в `main.py` через `dp.include_router(...)`
-- Если команда дорогая (LLM/API calls) — добавь в `bot/middlewares/rate_limit.py`
-  COMMAND_LIMITS dict
+- Если команда дорогая (LLM/API calls) — добавь в `bot/middlewares/rate_limit.py` `COMMAND_LIMITS` dict
 
 ### "Хочу изменить логику публикации (digest или single)"
+
 - Digest: `workers/publisher.py`, метод `_process_channel`
 - Single для hybrid режима: `workers/viral_picker.py`, метод `_process_hybrid_channel`
 - Single для пуристого single режима: `workers/collector.py`, после `enqueue_for_digest`
 - ⚠️ Все три места независимо проверяют квоты, dedup, фильтры
 
 ### "Хочу добавить новый тариф или поменять лимиты"
-- `tiers.py` — TIER_LIMITS dict
+
+- `tiers.py` — `TIER_LIMITS` dict
 - ⚠️ После изменений может понадобиться миграция БД (если есть юзеры со старыми тарифами)
 
 ### "Хочу новую LLM-функцию"
+
 - `core/llm_client.py` — все методы вызовов OpenRouter
 - Используй `_call_with_retry` для надёжности
 - Helper для генерации промптов: `prompts.py`
 
 ### "Хочу новый источник данных (RSS, TGStat, etc.)"
+
 - Новый клиент в `core/your_source_client.py`
-- Изменения в `db/models.py` (ChannelSource нужно обобщить)
+- Изменения в `db/models.py` (`ChannelSource` нужно обобщить)
 - Изменения в `workers/collector.py` (loop по source types)
 - ⚠️ Большая работа — спросить юзера про приоритет
 
 ### "Хочу починить баг — посмотреть логи"
+
 ```bash
 journalctl -u twidgest-bot --since "10 minutes ago" --no-pager | tail -50
 ```
 
 ### "Хочу изменить welcome-сообщение или /help"
-- `bot/handlers/start.py` — WELCOME константа, /help, /legal, /tg_help
 
-## Что трогать **не нужно**
+- `bot/handlers/start.py` — `WELCOME` константа, `/help`, `/legal`, `/tg_help`
 
-1. **`prompts.BASE_SAFETY`** — A+B+C разделы. Это **юр.защита**. Изменения только
-   с владельцем продукта.
+## Что трогать не нужно
 
-2. **`db/models.py`** — изменения требуют миграции существующей БД.
-   Сейчас Alembic нет, мигрируем через `ALTER TABLE` руками.
-
+1. **`prompts.BASE_SAFETY`** — A+B+C разделы. Это юр.защита. Изменения только с владельцем продукта.
+2. **`db/models.py`** — изменения требуют миграции существующей БД. Сейчас Alembic нет, мигрируем через `ALTER TABLE` руками.
 3. **`tiers.py` структура** — наследие, важна совместимость с активными платежами.
-
 4. **`legal/*.md`** — изменения только с юр.консультацией.
-
-5. **`venv/`, `*.db`, `.env`** — никогда не комичить (защищено `.gitignore`).
+5. **`venv/`, `*.db`, `.env`** — никогда не комитить (защищено `.gitignore`).
 
 ## Команды для быстрой проверки
 
@@ -155,23 +157,27 @@ sqlite3 twidgest.db "SELECT id, title, filter_preset FROM channels;"
 ## Workflow для серьёзных изменений
 
 1. **Checkpoint в git перед началом**:
+
 ```bash
-   git status  # должен быть clean
-   git log --oneline -3  # знаем точку отката
+   git status              # должен быть clean
+   git log --oneline -3    # знаем точку отката
 ```
 
 2. **Атомарные шаги, компиляция после каждого**:
+
 ```bash
    # Изменил файл
    python3 -m py_compile файл.py && echo OK
 ```
 
 3. **Не рестартовать бот до проверки финального состояния**:
+
 ```bash
    find . -name "*.py" -not -path "*/venv/*" | xargs python3 -m py_compile && echo "ALL OK"
 ```
 
 4. **Только после ALL OK — рестарт и наблюдение**:
+
 ```bash
    systemctl restart twidgest-bot
    sleep 5
@@ -182,18 +188,12 @@ sqlite3 twidgest.db "SELECT id, title, filter_preset FROM channels;"
 
 ## Lessons learned (важно для AI-сессий)
 
-1. **Regex для multi-line constants — ненадёжен**.
-   Если паттерн не нашёлся 2 раза — не пытаться 3-й. Переписать целиком через
-   `cat > file << 'EOF'` или попросить юзера показать текущий код перед патчем.
+1. **Regex для multi-line constants — ненадёжен.** Если паттерн не нашёлся 2 раза — не пытаться 3-й. Переписать целиком через `cat > file << 'EOF'` или попросить юзера показать текущий код перед патчем.
 
-2. **Whitelist в LLM-промпте делает фильтр жёстче, blocklist — мягче**.
-   Когда нужно мягкое поведение — описывать что **отбраковывать**, не что **публиковать**.
+2. **Whitelist в LLM-промпте делает фильтр жёстче, blocklist — мягче.** Когда нужно мягкое поведение — описывать что **отбраковывать**, не что **публиковать**.
 
-3. **"Лучше ничего не опубликовать чем опасное" в начале промпта доминирует
-   над любыми последующими "PUBLISH" rules**. LLM обрабатывает промпт кумулятивно.
+3. **"Лучше ничего не опубликовать чем опасное" в начале промпта доминирует над любыми последующими "PUBLISH" rules.** LLM обрабатывает промпт кумулятивно.
 
-4. **Default filter_mode при создании каналов = "strict"**. Юзер может переключить
-   на "loose" через `/setfilter <id> loose` если нужны новости/реакции (BBC headlines).
+4. **Default `filter_mode` при создании каналов = "strict".** Юзер может переключить на "loose" через `/setfilter <id> loose` если нужны новости/реакции (BBC headlines).
 
-5. **Twitter не покрывает русский региональный контент** (Чебоксары, Таро на русском,
-   маникюр). Workaround: команда `/tg_help` для manual setup TG-каналов как источников.
+5. **Twitter не покрывает русский региональный контент** (Чебоксары, Таро на русском, маникюр). Workaround: команда `/tg_help` для manual setup TG-каналов как источников.
