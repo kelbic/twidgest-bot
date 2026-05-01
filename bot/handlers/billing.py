@@ -41,7 +41,7 @@ def _tier_emoji(tier: Tier) -> str:
 def _build_upgrade_keyboard() -> InlineKeyboardMarkup:
     """Инлайн-клавиатура с кнопками покупки тарифов."""
     rows: list[list[InlineKeyboardButton]] = []
-    for tier in [Tier.STARTER, Tier.PRO, Tier.AGENCY]:
+    for tier in [Tier.PRO]:
         limits = TIERS[tier]
         button = InlineKeyboardButton(
             text=f"{_tier_emoji(tier)} {limits.name} — {limits.price_stars}⭐/мес",
@@ -62,7 +62,11 @@ async def cmd_upgrade(message: Message) -> None:
         active = await is_tier_active(user)
 
     lines = ["💎 <b>Тарифы TwidgestBot</b>\n"]
-    for tier in [Tier.FREE, Tier.STARTER, Tier.PRO, Tier.AGENCY]:
+    from datetime import datetime
+    if user.tier == "free" and user.tier_expires_at and user.tier_expires_at > datetime.utcnow():
+        days_left = (user.tier_expires_at - datetime.utcnow()).days
+        lines.append(f"⏳ <b>Пробный период:</b> осталось {days_left} дн.\n")
+    for tier in [Tier.FREE, Tier.PRO]:
         limits = TIERS[tier]
         is_current = (user.tier == tier.value and active) or (
             tier == Tier.FREE and not active

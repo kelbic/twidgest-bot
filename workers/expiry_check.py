@@ -19,7 +19,6 @@ async def run_expiry_check() -> None:
         result = await session.execute(
             select(User).where(
                 and_(
-                    User.tier != "free",
                     User.tier_expires_at != None,  # noqa: E711
                     User.tier_expires_at < datetime.utcnow(),
                 )
@@ -27,9 +26,27 @@ async def run_expiry_check() -> None:
         )
         expired = list(result.scalars().all())
 
+    downgraded = 0
+    trial_expired = 0
     for user in expired:
         async with session_maker()() as session:
-            await downgrade_to_free(session, user.tg_user_id)
-            logger.info("User %s downgraded to free (expired)", user.tg_user_id)
+            if user.tier == "free":
+                # Free trial истёк — просто обнуляем expires_at, тариф остаётся free
+                from sqlalchemy import update as sa_update
+                await session.execute(
+                    sa_update(User)
+                    .where(User.tg_user_id == user.tg_user_id)
+                    .values(tier_expires_at=None)
+                )
+                await session.commit()
+                trial_expired += 1
+                logger.info("User %s free trial expired", user.tg_user_id)
+            else:
+                await downgrade_to_free(session, user.tg_user_id)
+                downgraded += 1
+                logger.info("User %s downgraded to free (expired)", user.tg_user_id)
 
-    logger.info("=== Expiry check done. Downgraded %d users ===", len(expired))
+    logger.info(
+        "=== Expiry check done. Downgraded: %d, Trial expired: %d ===",
+        downgraded, trial_expired,
+    )

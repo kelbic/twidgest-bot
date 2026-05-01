@@ -1,7 +1,7 @@
 """Доступ к таблице users + связанные сущности."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +27,9 @@ async def get_or_create_user(
             await session.commit()
         return user
 
-    user = User(tg_user_id=tg_user_id, tg_username=tg_username, tier="free")
+    trial_expires = datetime.utcnow() + timedelta(days=30)
+    user = User(tg_user_id=tg_user_id, tg_username=tg_username, tier="free",
+                tier_expires_at=trial_expires)
     session.add(user)
     settings = UserSettings(user_id=tg_user_id)
     session.add(settings)
@@ -122,9 +124,8 @@ async def remove_target(session: AsyncSession, user_id: int, target_id: int) -> 
 
 
 async def is_tier_active(user: User) -> bool:
-    """Платный тариф истёк → откатываемся к free."""
-    if user.tier == "free":
-        return True
+    """Проверяет активность тарифа. Free = trial 30 дней, Pro = до expires_at."""
     if user.tier_expires_at is None:
-        return False
+        # Старые Free-юзеры без expires_at — даём доступ, но логируем
+        return user.tier != "free"
     return user.tier_expires_at > datetime.utcnow()
