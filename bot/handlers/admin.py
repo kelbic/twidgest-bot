@@ -34,7 +34,9 @@ HELP_TEXT = (
     "/admin notify USER_ID TEXT - отправить личное сообщение юзеру\n"
     "/admin setfilter CHANNEL_ID PRESET - сменить filter_preset любого канала\n"
     "/admin stats - общая статистика\n"
-    "/admin broadcast TEXT - рассылка всем"
+    "/admin broadcast TEXT - рассылка всем\n"
+    "/admin addsource CHANNEL_ID @user|vk:domain - добавить источник любому каналу\n"
+    "/admin removesource CHANNEL_ID @user|vk:domain - удалить источник"
 )
 
 
@@ -66,6 +68,10 @@ async def cmd_admin(message: Message, command: CommandObject) -> None:
         await _admin_notify(message, rest)
     elif sub == "setfilter":
         await _admin_setfilter(message, rest)
+    elif sub == "addsource":
+        await _admin_addsource(message, rest)
+    elif sub == "removesource":
+        await _admin_removesource(message, rest)
     else:
         await message.answer(f"Unknown subcommand: {sub}\n\n{HELP_TEXT}")
 
@@ -453,3 +459,131 @@ async def _admin_setfilter(message: Message, args: list) -> None:
         "Admin set filter on channel %d (owner %d) to %s",
         channel_id, channel.user_id, preset_code,
     )
+
+
+async def _admin_addsource(message: Message, args: list) -> None:
+    """Добавить источник в канал любого пользователя (Twitter или VK)."""
+    if len(args) != 2:
+        await message.answer(
+            "Usage: /admin addsource CHANNEL_ID @username\n"
+            "       /admin addsource CHANNEL_ID vk:domain"
+        )
+        return
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("channel_id must be int.")
+        return
+
+    raw = args[1].strip()
+    is_vk = raw.lower().startswith("vk:")
+
+    from sqlalchemy import select
+    from db.models import Channel, ChannelSource
+    from db.session import session_maker
+    from core.vk_client import VKClient
+    from config import Config
+
+    async with session_maker()() as session:
+        result = await session.execute(select(Channel).where(Channel.id == channel_id))
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Channel {channel_id} not found.")
+            return
+
+        if is_vk:
+            identifier = VKClient.parse_identifier(raw)
+            if not identifier:
+                await message.answer("❌ Invalid VK identifier.")
+                return
+            stored = f"vk:{identifier}"
+            cfg = Config()
+            if not cfg.vk_access_token:
+                await message.answer("❌ VK_ACCESS_TOKEN not set.")
+                return
+            vk = VKClient(cfg.vk_access_token)
+            community = await vk.validate_community(identifier)
+            if not community:
+                await message.answer(f"❌ VK community '{identifier}' not found or closed.")
+                return
+            session.add(ChannelSource(
+                channel_id=channel_id,
+                twitter_username=stored,
+                source_type="vk",
+                is_active=True,
+            ))
+            await session.commit()
+            await message.answer(
+                f"✅ VK source {stored} ({community.name}) added to channel #{channel_id} "
+                f"({channel.title}, owner: {channel.user_id})."
+            )
+        else:
+            username = raw.lstrip("@").strip()
+            session.add(ChannelSource(
+                channel_id=channel_id,
+                twitter_username=username,
+                source_type="twitter",
+                is_active=True,
+            ))
+            await session.commit()
+            await message.answer(
+                f"✅ Twitter source @{username} added to channel #{channel_id} "
+                f"({channel.title}, owner: {channel.user_id})."
+            )
+    logger.info("Admin added source '%s' to channel %d", raw, channel_id)
+
+
+async def _admin_removesource(message: Message, args: list) -> None:
+    """Удалить источник из канала любого пользователя."""
+    if len(args) != 2:
+        await message.answer(
+            "Usage: /admin removesource CHANNEL_ID @username\n"
+            "       /admin removesource CHANNEL_ID vk:domain"
+        )
+        return
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("channel_id must be int.")
+        return
+
+    raw = args[1].strip()
+    is_vk = raw.lower().startswith("vk:")
+
+    from sqlalchemy import select, delete as sa_delete
+    from db.models import Channel, ChannelSource
+    from db.session import session_maker
+    from core.vk_client import VKClient
+
+    stored = VKClient.parse_identifier(raw) if is_vk else raw.lstrip("@").strip()
+    if is_vk:
+        stored = f"vk:{stored}" if stored else None
+    if not stored:
+        await message.answer("❌ Invalid identifier.")
+        return
+
+    async with session_maker()() as session:
+        result = await session.execute(select(Channel).where(Channel.id == channel_id))
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Channel {channel_id} not found.")
+            return
+
+        del_result = await session.execute(
+            sa_delete(ChannelSource).where(
+                ChannelSource.channel_id == channel_id,
+                ChannelSource.twitter_username.ilike(stored),
+            )
+        )
+        await session.commit()
+        removed = del_result.rowcount
+
+    if removed:
+        await message.answer(
+            f"✅ Source '{stored}' removed from channel #{channel_id} ({channel.title})."
+        )
+    else:
+        await message.answer(
+            f"⚠️ Source '{stored}' not found in channel #{channel_id}."
+        )
+    logger.info("Admin removed source '%s' from channel %d (removed=%d)", stored, channel_id, removed)
