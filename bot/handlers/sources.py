@@ -81,18 +81,19 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
         await message.answer(
             f"<b>{channel.title}</b> (id={channel_id})\n\n"
             f"Источников нет.\n\n"
-            f"Добавить: <code>/addsource {channel_id} @username</code>"
+            f"Добавить: <code>/addsource {channel_id} @user</code> или <code>vk:domain</code>"
         )
         return
 
     lines = [f"📡 <b>Источники канала «{channel.title}»</b> (id={channel_id})\n"]
     for i, src in enumerate(channel.channel_sources, 1):
         active = "✅" if src.is_active else "⏸"
-        lines.append(f"  {i}. {active} @{src.twitter_username}")
+        prefix = "" if src.twitter_username.startswith("vk:") else "@"
+        lines.append(f"  {i}. {active} {prefix}{src.twitter_username}")
 
     lines.append(
         f"\n<b>Команды:</b>\n"
-        f"  Добавить: <code>/addsource {channel_id} @username</code>\n"
+        f"  Добавить: <code>/addsource {channel_id} @user</code> или <code>vk:domain</code>\n"
         f"  Удалить: <code>/removesource {channel_id} @username</code>"
     )
     await message.answer("\n".join(lines))
