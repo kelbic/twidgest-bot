@@ -90,6 +90,13 @@ flowchart TB
 
 **Subscription billing via Telegram Stars.** Uses native Telegram `sendInvoice` with `subscription_period`, so auto-renewal just works. `XTR` currency, no Stripe/Paddle needed — critical for creators in regions where traditional payment rails aren't available.
 
+**Three-tier content filter.** Each channel has its own `filter_preset`:
+- 🎯 `strict` — facts and events only, high bar (legacy: `news`)
+- 📡 `loose` — news, reactions, community posts (legacy: `community`)
+- ⚡ `unfiltered` — publishes everything except legally risky content; user opt-in with disclaimer
+
+Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET`.
+
 **Safety-first content filter.** The LLM prompt explicitly rejects content that would be problematic under Russian law (military critique, drug references, specific medication dosages). Caught before posting, not after.
 
 **Template + AI hybrid onboarding.** 15 curated templates for popular niches (AI, crypto, longevity, F1, NBA, etc.) give instant-start UX. If the topic isn't in the catalog, `/createchannel ai <description>` asks the LLM to suggest 12 relevant X accounts with one-line explanations for each.
