@@ -41,7 +41,7 @@ TIERS: dict[Tier, TierLimits] = {
     ),
     Tier.STARTER: TierLimits(
         name="Starter",
-        price_stars=99,
+        price_stars=2999,
         max_sources=10,
         max_targets=2,
         max_posts_per_day=20,
@@ -52,7 +52,7 @@ TIERS: dict[Tier, TierLimits] = {
     ),
     Tier.PRO: TierLimits(
         name="Pro",
-        price_stars=299,
+        price_stars=2999,
         max_sources=30,
         max_targets=5,
         max_posts_per_day=200,
@@ -63,7 +63,7 @@ TIERS: dict[Tier, TierLimits] = {
     ),
     Tier.AGENCY: TierLimits(
         name="Agency",
-        price_stars=999,
+        price_stars=2999,
         max_sources=100,
         max_targets=20,
         max_posts_per_day=2000,
