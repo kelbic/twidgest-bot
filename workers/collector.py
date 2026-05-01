@@ -99,8 +99,10 @@ async def run_collect_cycle(
     if vk_client and unique_vk:
         for identifier in unique_vk:
             try:
+                # Стрипаем префикс vk: перед запросом к API
+                clean_id = identifier.removeprefix('vk:')
                 vk_results[identifier] = await vk_client.get_community_posts(
-                    identifier, count=20
+                    clean_id, count=20
                 )
             except Exception:
                 logger.exception("VK fetch failed for %s", identifier)

@@ -167,6 +167,15 @@ class VKClient:
         return f"https://vk.com/wall{owner_id}_{post_id}"
 
     @staticmethod
+    def clean_text(text: str) -> str:
+        """Убирает VK-разметку: [club123|Текст] → Текст, [id123|Имя] → Имя."""
+        # [club123456|Отображаемый текст] → Отображаемый текст
+        text = re.sub(r"\[(?:club|id|public)\d+\|([^\]]+)\]", r"\1", text)
+        # Убираем оставшиеся теги вида [something|text]
+        text = re.sub(r"\[[^\]]+\|([^\]]+)\]", r"\1", text)
+        return text.strip()
+
+    @staticmethod
     def _pick_best_photo_url(attachments: list[dict]) -> str | None:
         """Из списка attachments выбирает URL лучшей картинки.
 
@@ -207,7 +216,7 @@ class VKClient:
         return VKPost(
             id=post_id,
             owner_id=owner_id,
-            text=raw.get("text", "") or "",
+            text=self.clean_text(raw.get("text", "") or ""),
             url=self.build_post_url(owner_id, post_id),
             date=raw.get("date", 0),
             likes=raw.get("likes", {}).get("count", 0),

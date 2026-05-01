@@ -137,12 +137,19 @@ async def _process_channel(
             for t in queue
         ]
 
-        # Используем niche-промпт для этого канала
-        system_prompt = build_digest_prompt(channel.niche)
-        digest_text = await _build_digest_with_prompt(llm, digest_tweets, system_prompt)
-        if not digest_text:
-            logger.warning("LLM failed digest for channel %d", channel.id)
-            return
+        # unfiltered — не используем LLM, просто форматируем посты
+        if channel.filter_preset == 'unfiltered':
+            lines = []
+            for t in digest_tweets:
+                lines.append(f'{t.text[:300]}\n<a href="{t.url}">→ Источник</a>')
+            digest_text = '\n\n---\n\n'.join(lines)
+        else:
+            # Используем niche-промпт для этого канала
+            system_prompt = build_digest_prompt(channel.niche)
+            digest_text = await _build_digest_with_prompt(llm, digest_tweets, system_prompt)
+            if not digest_text:
+                logger.warning("LLM failed digest for channel %d", channel.id)
+                return
 
         # Fake target для send_to_target
         fake_target = type("FakeTarget", (), {
