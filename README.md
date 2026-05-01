@@ -118,54 +118,52 @@ Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET
 | Pro | 2999 ⭐/month | 10 | 3 | 50 + Claude LLM |
 
 ## Project structure
-twidgest-bot/
-├── main.py              Entry point: dispatcher + scheduler
-├── config.py            Env-based config (incl. VK_ACCESS_TOKEN)
-├── tiers.py             Pricing tiers (source of truth)
-├── templates.py         15 built-in channel templates
-├── prompts.py           LLM prompts + filter mode definitions
-├── engagement_defaults.py  Per-niche engagement defaults
-│
-├── bot/
-│   ├── handlers/
-│   │   ├── start.py     /start, /help, /me
-│   │   ├── channels.py  /channels, /createchannel, /templates
-│   │   ├── sources.py   /sources, /addsource, /removesource,
-│   │   │                /setfilter, /setthreshold, /filters
-│   │   ├── targets.py   Target channel management
-│   │   ├── forward.py   Auto-bind channel on forwarded message
-│   │   ├── admin.py     /admin grant|stats|user|broadcast|
-│   │   │                setfilter|setthreshold|addsource|removesource
-│   │   └── billing.py   /upgrade, Stars payment flow
-│   └── middlewares/
-│       ├── admin_check.py
-│       └── rate_limit.py
-│
-├── core/
-│   ├── twitter_client.py  twitterapi.io wrapper
-│   ├── twitter_cache.py   Shared TTL cache across users
-│   ├── vk_client.py       VK API client (wall.get, groups.search)
-│   ├── llm_client.py      OpenRouter with retry/backoff
-│   ├── safe_sender.py     Telegram send with auto-deactivation
-│   ├── image_picker.py    Unsplash image fetcher
-│   └── topic_dedup.py     Duplicate detection
-│
-├── db/
-│   ├── models.py          SQLAlchemy models
-│   ├── session.py         Async engine setup
-│   └── repositories/
-│       ├── users.py       incl. 30-day trial logic
-│       ├── channels.py
-│       ├── tweets.py
-│       ├── billing.py
-│       └── admin.py
-│
-└── workers/
-├── collector.py       Fetch Twitter+VK, filter, post/enqueue
-├── publisher.py       Digest builder and publisher
-├── viral_picker.py    Picks top posts for hybrid mode
-├── channel_health.py  Channel health checks
-└── expiry_check.py    Daily tier downgrade + trial expiry
+
+    twidgest-bot/
+    ├── main.py                    Entry point: dispatcher + scheduler
+    ├── config.py                  Env-based config (incl. VK_ACCESS_TOKEN)
+    ├── tiers.py                   Pricing tiers (source of truth)
+    ├── templates.py               15 built-in channel templates
+    ├── prompts.py                 LLM prompts + filter mode definitions
+    ├── engagement_defaults.py     Per-niche engagement defaults
+    │
+    ├── bot/handlers/
+    │   ├── start.py               /start, /help, /me
+    │   ├── channels.py            /channels, /createchannel, /templates
+    │   ├── sources.py             /sources, /addsource, /removesource,
+    │   │                          /setfilter, /setthreshold, /filters
+    │   ├── targets.py             Target channel management
+    │   ├── forward.py             Auto-bind channel on forwarded message
+    │   ├── admin.py               /admin grant|stats|user|broadcast|
+    │   │                          setfilter|setthreshold|addsource|removesource
+    │   └── billing.py             /upgrade, Stars payment flow
+    │
+    ├── core/
+    │   ├── twitter_client.py      twitterapi.io wrapper
+    │   ├── twitter_cache.py       Shared TTL cache across users
+    │   ├── vk_client.py           VK API client (wall.get, groups.search)
+    │   ├── llm_client.py          OpenRouter with retry/backoff
+    │   ├── safe_sender.py         Telegram send with auto-deactivation
+    │   ├── image_picker.py        Unsplash image fetcher
+    │   └── topic_dedup.py         Duplicate detection
+    │
+    ├── db/
+    │   ├── models.py              SQLAlchemy models
+    │   ├── session.py             Async engine setup
+    │   └── repositories/
+    │       ├── users.py           incl. 30-day trial logic
+    │       ├── channels.py
+    │       ├── tweets.py
+    │       ├── billing.py
+    │       └── admin.py
+    │
+    └── workers/
+        ├── collector.py           Fetch Twitter+VK, filter, post/enqueue
+        ├── publisher.py           Digest builder and publisher
+        ├── viral_picker.py        Picks top posts for hybrid mode
+        ├── channel_health.py      Channel health checks
+        └── expiry_check.py        Daily tier downgrade + trial expiry
+
 
 ## Running locally
 
