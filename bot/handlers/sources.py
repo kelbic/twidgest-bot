@@ -689,6 +689,10 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
         f"Режим: <code>{channel.mode}</code> | {images_str}"
     )
     parts.append(f"🎚 Фильтр: {filter_str} (<code>/setfilter {channel_id} ...</code>)")
+    if channel.filter_preset == "unfiltered":
+        parts.append(f"📊 Виральность: мин. лайков={channel.min_likes} (авто-0 для unfiltered)")
+    else:
+        parts.append(f"📊 Виральность: мин. лайков={channel.min_likes}, мин. ретвитов={channel.min_retweets}")
 
     target_str = channel.target_chat_title or (
         str(channel.target_chat_id) if channel.target_chat_id else "не привязан"
@@ -769,7 +773,8 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
                 icon = "⚠️"
                 status_text = "ни одного твита"
 
-            parts.append(f"  {icon} @{uname} — {status_text}")
+            src_prefix = "" if uname.startswith("vk:") else "@"
+            parts.append(f"  {icon} {src_prefix}{uname} — {status_text}")
 
     # === Очередь и расписание ===
     parts.append("")
