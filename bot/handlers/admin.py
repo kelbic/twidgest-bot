@@ -307,10 +307,11 @@ async def _admin_channels(message: Message) -> None:
         rej = rejections.get(ch.id, 0)
         target = "BOUND" if ch.target_chat_id else "no_target"
 
+        filter_p = ch.filter_preset or "news"
         lines.append(
             f"#{ch.id} @{username} | {ch.title[:35]}\n"
             f"   {ch.mode}/{ch.niche} | sources={len(ch.channel_sources)} | "
-            f"last_post={last_str} | rej_24h={rej} | {target}"
+            f"last_post={last_str} | rej_24h={rej} | {target} | filter={filter_p}"
         )
 
     text = "\n".join(lines)
