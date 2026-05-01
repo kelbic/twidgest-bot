@@ -810,6 +810,85 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     await message.answer(text)
 
 
+
+
+@router.message(Command("setthreshold"))
+async def cmd_setthreshold(message: Message, command: CommandObject) -> None:
+    """Устанавливает пороги виральности канала.
+    Использование: /setthreshold <channel_id> likes=N retweets=N
+    Пример: /setthreshold 5 likes=10 retweets=2
+    """
+    if message.from_user is None:
+        return
+    if not command.args:
+        await message.answer(
+            "Использование: <code>/setthreshold &lt;channel_id&gt; likes=N retweets=N</code>\n\n"
+            "Примеры:\n"
+            "  <code>/setthreshold 5 likes=10 retweets=2</code>\n"
+            "  <code>/setthreshold 5 likes=0</code> — только лайки\n\n"
+            "<i>Для фильтра unfiltered пороги игнорируются (всегда 0).</i>"
+        )
+        return
+
+    parts = command.args.strip().split()
+    if not parts:
+        await message.answer("❌ Укажи channel_id.")
+        return
+
+    try:
+        channel_id = int(parts[0])
+    except ValueError:
+        await message.answer("❌ ID канала должен быть числом.")
+        return
+
+    # Парсим likes=N retweets=N
+    new_likes = None
+    new_retweets = None
+    for p in parts[1:]:
+        if p.startswith("likes="):
+            try:
+                new_likes = int(p.split("=")[1])
+            except ValueError:
+                await message.answer(f"❌ Некорректное значение: {p}")
+                return
+        elif p.startswith("retweets="):
+            try:
+                new_retweets = int(p.split("=")[1])
+            except ValueError:
+                await message.answer(f"❌ Некорректное значение: {p}")
+                return
+
+    if new_likes is None and new_retweets is None:
+        await message.answer("❌ Укажи likes=N и/или retweets=N.")
+        return
+
+    channel = await _get_user_channel(message.from_user.id, channel_id)
+    if channel is None:
+        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    from sqlalchemy import update as sa_update
+    updates = {}
+    if new_likes is not None:
+        updates["min_likes"] = new_likes
+    if new_retweets is not None:
+        updates["min_retweets"] = new_retweets
+
+    async with session_maker()() as session:
+        await session.execute(
+            sa_update(Channel).where(Channel.id == channel_id).values(**updates)
+        )
+        await session.commit()
+
+    likes_val = new_likes if new_likes is not None else channel.min_likes
+    retweets_val = new_retweets if new_retweets is not None else channel.min_retweets
+    await message.answer(
+        f"✅ Пороги канала <b>«{channel.title}»</b> обновлены:\n"
+        f"  мин. лайков: <b>{likes_val}</b>\n"
+        f"  мин. ретвитов: <b>{retweets_val}</b>\n\n"
+        f"<i>Применится к следующему циклу сбора (до 30 мин).</i>"
+    )
+
 @router.message(Command("filters"))
 async def cmd_filters(message: Message) -> None:
     """Список доступных пресетов фильтра ценности."""

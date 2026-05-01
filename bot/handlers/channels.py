@@ -266,10 +266,14 @@ async def cmd_channels(message: Message) -> None:
         from prompts import get_filter_mode as _gp
         _preset = _gp(ch.filter_preset)
         filter_str = f"{_preset.emoji} {_preset.name}"
+        if ch.filter_preset == "unfiltered":
+            threshold_str = f"лайков≥{ch.min_likes} (авто-0)"
+        else:
+            threshold_str = f"лайков≥{ch.min_likes}, ретв≥{ch.min_retweets}"
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
             f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status} | Фильтр: {filter_str}\n"
-            f"  Источников: {len(ch.channel_sources)}\n"
+            f"  Источников: {len(ch.channel_sources)} | 📊 {threshold_str}\n"
             f"  {target_info}\n"
             f"  {last_info}"
         )

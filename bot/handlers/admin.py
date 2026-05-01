@@ -36,7 +36,8 @@ HELP_TEXT = (
     "/admin stats - общая статистика\n"
     "/admin broadcast TEXT - рассылка всем\n"
     "/admin addsource CHANNEL_ID @user|vk:domain - добавить источник любому каналу\n"
-    "/admin removesource CHANNEL_ID @user|vk:domain - удалить источник"
+    "/admin removesource CHANNEL_ID @user|vk:domain - удалить источник\n"
+    "/admin setthreshold CHANNEL_ID likes=N retweets=N - порог виральности"
 )
 
 
@@ -72,6 +73,8 @@ async def cmd_admin(message: Message, command: CommandObject) -> None:
         await _admin_addsource(message, rest)
     elif sub == "removesource":
         await _admin_removesource(message, rest)
+    elif sub == "setthreshold":
+        await _admin_setthreshold(message, rest)
     else:
         await message.answer(f"Unknown subcommand: {sub}\n\n{HELP_TEXT}")
 
@@ -587,3 +590,65 @@ async def _admin_removesource(message: Message, args: list) -> None:
             f"⚠️ Source '{stored}' not found in channel #{channel_id}."
         )
     logger.info("Admin removed source '%s' from channel %d (removed=%d)", stored, channel_id, removed)
+
+
+async def _admin_setthreshold(message: Message, args: list) -> None:
+    """Установить пороги виральности любого канала."""
+    if not args:
+        await message.answer("Usage: /admin setthreshold CHANNEL_ID likes=N retweets=N")
+        return
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("channel_id must be int.")
+        return
+
+    new_likes = None
+    new_retweets = None
+    for p in args[1:]:
+        if p.startswith("likes="):
+            try:
+                new_likes = int(p.split("=")[1])
+            except ValueError:
+                await message.answer(f"Invalid value: {p}")
+                return
+        elif p.startswith("retweets="):
+            try:
+                new_retweets = int(p.split("=")[1])
+            except ValueError:
+                await message.answer(f"Invalid value: {p}")
+                return
+
+    if new_likes is None and new_retweets is None:
+        await message.answer("Specify likes=N and/or retweets=N.")
+        return
+
+    from sqlalchemy import select, update as sa_update
+    from db.models import Channel
+    from db.session import session_maker
+
+    async with session_maker()() as session:
+        result = await session.execute(select(Channel).where(Channel.id == channel_id))
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Channel {channel_id} not found.")
+            return
+
+        updates = {}
+        if new_likes is not None:
+            updates["min_likes"] = new_likes
+        if new_retweets is not None:
+            updates["min_retweets"] = new_retweets
+
+        await session.execute(
+            sa_update(Channel).where(Channel.id == channel_id).values(**updates)
+        )
+        await session.commit()
+
+    likes_val = new_likes if new_likes is not None else channel.min_likes
+    retweets_val = new_retweets if new_retweets is not None else channel.min_retweets
+    await message.answer(
+        f"✅ Channel #{channel_id} ({channel.title}) thresholds updated:\n"
+        f"  min_likes={likes_val}, min_retweets={retweets_val} (owner: {channel.user_id})"
+    )
+    logger.info("Admin setthreshold channel %d: likes=%s retweets=%s", channel_id, new_likes, new_retweets)
