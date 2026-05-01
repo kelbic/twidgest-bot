@@ -92,18 +92,19 @@ class Channel(Base):
 
 
 class ChannelSource(Base):
-    """Источник (X-аккаунт) для конкретного канала."""
+    """Источник для конкретного канала (Twitter или VK)."""
 
     __tablename__ = "channel_sources"
     __table_args__ = (
-        UniqueConstraint("channel_id", "twitter_username", name="uq_channel_source"),
+        UniqueConstraint("channel_id", "twitter_username", "source_type", name="uq_channel_source"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("channels.id", ondelete="CASCADE"), index=True
     )
-    twitter_username: Mapped[str] = mapped_column(String(32), nullable=False)
+    twitter_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(16), default="twitter")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

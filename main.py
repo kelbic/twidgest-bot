@@ -20,6 +20,7 @@ from bot.middlewares.admin_check import AdminOnlyMiddleware
 from bot.middlewares.rate_limit import RateLimitMiddleware
 from config import Config
 from core.llm_client import OpenRouterClient
+from core.vk_client import VKClient
 from core.twitter_cache import TwitterCache
 from core.twitter_client import TwitterClient
 from db.session import init_db, init_engine
@@ -65,6 +66,11 @@ async def main() -> None:
     cache = TwitterCache(twitter_client, ttl_seconds=1800)
     llm_default = OpenRouterClient(cfg.openrouter_api_key, cfg.openrouter_model_default)
     llm_pro = OpenRouterClient(cfg.openrouter_api_key, cfg.openrouter_model_pro)
+    vk_client = VKClient(cfg.vk_access_token) if cfg.vk_access_token else None
+    if vk_client:
+        logging.info("VK client initialized")
+    else:
+        logging.info("VK_ACCESS_TOKEN not set, VK sources disabled")
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -75,6 +81,7 @@ async def main() -> None:
             "cache": cache,
             "llm_default": llm_default,
             "llm_pro": llm_pro,
+            "vk_client": vk_client,
         },
     )
     scheduler.add_job(
@@ -107,7 +114,7 @@ async def main() -> None:
 
     # Первый цикл сбора сразу — чтобы не ждать 30 минут после рестарта
     async def _startup_cycle():
-        await run_collect_cycle(bot, cache, llm_default, llm_pro)
+        await run_collect_cycle(bot, cache, llm_default, llm_pro, vk_client)
         await run_viral_picker_cycle(bot, llm_default)
         await run_publish_cycle(bot, llm_default, llm_pro)
     asyncio.create_task(_startup_cycle())

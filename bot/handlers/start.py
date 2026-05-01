@@ -58,7 +58,8 @@ HELP = """\
 
 <b>📡 Источники:</b>
 /sources &lt;id&gt; — список источников канала
-/addsource &lt;id&gt; @user — добавить источник
+/addsource &lt;id&gt; @user — добавить Twitter-источник
+/addsource &lt;id&gt; vk:domain — добавить VK-источник
 /removesource &lt;id&gt; @user — удалить источник
 /regenerate &lt;id&gt; — перегенерить все источники канала через AI
 /status &lt;id&gt; — детальная статистика канала

@@ -577,6 +577,8 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
         f"<b>🛠 Управление каналом:</b>\n"
         f"/status {channel.id} — диагностика канала\n"
         f"/sources {channel.id} — управление источниками\n"
+        f"/addsource {channel.id} @user — добавить Twitter\n"
+        f"/addsource {channel.id} vk:domain — добавить VK\n"
         f"/regenerate {channel.id} — пересоздать источники через AI\n"
         f"/setfilter {channel.id} strict|loose|unfiltered — фильтр (см. /filters)\n"
         f"/setimages {channel.id} on|off — картинки в канале\n"

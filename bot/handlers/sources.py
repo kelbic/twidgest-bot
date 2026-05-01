@@ -13,6 +13,10 @@ from aiogram.types import Message
 from sqlalchemy import select
 
 from prompts import list_filter_modes as list_presets, get_filter_mode as get_preset, FILTER_MODES as PRESETS
+from core.vk_client import VKClient as _VKClient
+from config import Config as _VKConfig
+_vk_cfg = _VKConfig()
+_vk_client = _VKClient(_vk_cfg.vk_access_token) if _vk_cfg.vk_access_token else None
 from config import Config
 from core.twitter_client import TwitterClient
 from db.models import Channel, ChannelSource, DigestQueueItem
@@ -96,14 +100,18 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("addsource"))
 async def cmd_addsource(message: Message, command: CommandObject) -> None:
-    """Добавить источник в канал. Проверяет существование через twitterapi.io."""
+    """Добавить источник в канал. Поддерживает Twitter (@user) и VK (vk:domain)."""
     if message.from_user is None:
         return
     args = _parse_args(command.args, 2)
     if not args:
         await message.answer(
-            "Использование: <code>/addsource &lt;channel_id&gt; @username</code>\n\n"
-            "Пример: <code>/addsource 5 @hubermanlab</code>"
+            "Использование:\n"
+            "  Twitter: <code>/addsource &lt;channel_id&gt; @username</code>\n"
+            "  VK:      <code>/addsource &lt;channel_id&gt; vk:domain</code>\n\n"
+            "Примеры:\n"
+            "  <code>/addsource 5 @hubermanlab</code>\n"
+            "  <code>/addsource 5 vk:lentaru</code>"
         )
         return
 
@@ -113,52 +121,99 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
         await message.answer("❌ ID канала должен быть числом.")
         return
 
-    username = args[1].lstrip("@").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,32}", username):
-        await message.answer(
-            "❌ Некорректный username. Только латиница, цифры, _ (до 32 символов)."
-        )
-        return
+    raw_source = args[1].strip()
+    is_vk = raw_source.lower().startswith("vk:")
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
         await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
         return
 
-    # Проверяем дубль
-    existing = {s.twitter_username.lower() for s in channel.channel_sources}
-    if username.lower() in existing:
-        await message.answer(f"⚠️ @{username} уже добавлен в канал.")
-        return
+    if is_vk:
+        # === VK источник ===
+        from core.vk_client import VKClient
+        identifier = _VKClient.parse_identifier(raw_source)
+        if not identifier:
+            await message.answer("❌ Некорректный VK идентификатор.\nПример: <code>vk:lentaru</code>")
+            return
 
-    # Валидация через twitterapi.io
-    status_msg = await message.answer(
-        f"🔍 Проверяю что @{username} существует в X..."
-    )
+        stored_id = f"vk:{identifier}"
+        existing = {s.twitter_username.lower() for s in channel.channel_sources}
+        if stored_id in existing:
+            await message.answer(f"⚠️ {stored_id} уже добавлен в канал.")
+            return
 
-    validation = await _twitter.validate_usernames([username])
-    is_alive = validation.get(username.lower(), False) or validation.get(username, False)
+        if not _vk_client:
+            await message.answer("❌ VK интеграция не настроена (нет VK_ACCESS_TOKEN).")
+            return
 
-    if not is_alive:
+        status_msg = await message.answer(f"🔍 Проверяю VK сообщество <code>{identifier}</code>...")
+        community = await _vk_client.validate_community(identifier)
+        if not community:
+            await status_msg.edit_text(
+                f"❌ VK сообщество <code>{identifier}</code> не найдено или закрытое."
+            )
+            return
+        if community.is_closed != 0:
+            await status_msg.edit_text(
+                f"❌ Сообщество <b>{community.name}</b> закрытое — бот не может читать посты."
+            )
+            return
+
+        async with session_maker()() as session:
+            session.add(ChannelSource(
+                channel_id=channel_id,
+                twitter_username=stored_id,
+                source_type="vk",
+                is_active=True,
+            ))
+            await session.commit()
+
         await status_msg.edit_text(
-            f"❌ Аккаунт @{username} не найден в X или не публикует твиты.\n\n"
-            f"Проверь правильность написания имени."
+            f"✅ VK источник <b>{community.name}</b> (<code>{stored_id}</code>) "
+            f"добавлен в канал <b>{channel.title}</b>.\n\n"
+            f"👥 Подписчиков: {community.members_count:,}\n"
+            f"Бот начнёт собирать посты в следующем цикле (до 30 мин)."
         )
-        return
 
-    # Добавляем в БД
-    async with session_maker()() as session:
-        session.add(ChannelSource(
-            channel_id=channel_id,
-            twitter_username=username,
-            is_active=True,
-        ))
-        await session.commit()
+    else:
+        # === Twitter источник ===
+        username = raw_source.lstrip("@").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,32}", username):
+            await message.answer(
+                "❌ Некорректный username. Только латиница, цифры, _ (до 32 символов)."
+            )
+            return
 
-    await status_msg.edit_text(
-        f"✅ Источник <b>@{username}</b> добавлен в канал <b>{channel.title}</b>.\n\n"
-        f"Бот начнёт собирать твиты с него в следующем цикле (до 30 мин)."
-    )
+        existing = {s.twitter_username.lower() for s in channel.channel_sources}
+        if username.lower() in existing:
+            await message.answer(f"⚠️ @{username} уже добавлен в канал.")
+            return
+
+        status_msg = await message.answer(f"🔍 Проверяю что @{username} существует в X...")
+        validation = await _twitter.validate_usernames([username])
+        is_alive = validation.get(username.lower(), False) or validation.get(username, False)
+
+        if not is_alive:
+            await status_msg.edit_text(
+                f"❌ Аккаунт @{username} не найден в X или не публикует твиты.\n\n"
+                f"Проверь правильность написания имени."
+            )
+            return
+
+        async with session_maker()() as session:
+            session.add(ChannelSource(
+                channel_id=channel_id,
+                twitter_username=username,
+                source_type="twitter",
+                is_active=True,
+            ))
+            await session.commit()
+
+        await status_msg.edit_text(
+            f"✅ Источник <b>@{username}</b> добавлен в канал <b>{channel.title}</b>.\n\n"
+            f"Бот начнёт собирать твиты с него в следующем цикле (до 30 мин)."
+        )
 
 
 @router.message(Command("removesource"))

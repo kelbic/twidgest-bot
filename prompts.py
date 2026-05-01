@@ -213,6 +213,39 @@ def build_single_prompt(niche_code: str = "general", filter_mode: str = "strict"
     return "\n".join(parts)
 
 
+
+
+def build_vk_prompt(niche_code: str = "general", filter_mode: str = "strict") -> str:
+    """Собирает system prompt для обработки VK-постов.
+
+    В отличие от build_single_prompt — пост уже на русском,
+    задача LLM: отредактировать и сократить для Telegram, не переводить.
+    """
+    niche = get_niche(niche_code)
+    filter_rules = get_filter_rules(filter_mode)
+
+    parts = [
+        f"Ты редактор русскоязычного Telegram-канала {niche.name}.",
+        f"Тема канала: {niche.topic}.",
+        "Тебе передаётся пост из VK на русском языке.",
+        "Сократи и адаптируй его для Telegram-аудитории. Не переводи — текст уже на русском.",
+        "Если пост проходит фильтры ниже — публикуй, не SKIP'ай при сомнениях.",
+        "",
+        BASE_SAFETY,
+        "",
+        filter_rules,
+    ]
+
+    if niche.style_hints:
+        parts.append(f"Стиль адаптации: {niche.style_hints}")
+        parts.append("")
+
+    parts.append(BASE_FORMAT.replace(
+        "В конце ОБЯЗАТЕЛЬНО:\n<a href=\"URL_твита\">→ Источник</a>",
+        "В конце ОБЯЗАТЕЛЬНО:\n<a href=\"URL_поста\">→ Источник</a>",
+    ))
+    return "\n".join(parts)
+
 # === Filter modes for UI (used by /filters command) ===
 
 @dataclass(frozen=True)
