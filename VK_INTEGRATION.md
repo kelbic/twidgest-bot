@@ -25,3 +25,4 @@
 
 ## Следующий шаг
 git checkout main && git merge vk-sources && git push origin main
+
