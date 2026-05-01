@@ -161,13 +161,17 @@ async def _process_channel(
         if not tweets:
             continue
 
+        # unfiltered — снимаем пороги виральности
+        eff_min_likes = 0 if channel.filter_preset == 'unfiltered' else channel.min_likes
+        eff_min_retweets = 0 if channel.filter_preset == 'unfiltered' else channel.min_retweets
+
         filtered: list[Tweet] = []
         for tw in tweets:
             if channel.skip_replies and tw.is_reply:
                 continue
-            if tw.likes < channel.min_likes:
+            if tw.likes < eff_min_likes:
                 continue
-            if tw.retweets < channel.min_retweets:
+            if tw.retweets < eff_min_retweets:
                 continue
             filtered.append(tw)
 
@@ -316,12 +320,13 @@ async def _process_vk_source(
     if not posts:
         return
 
+    eff_min_likes = 0 if channel.filter_preset == 'unfiltered' else channel.min_likes
     filtered = [
         p for p in posts
         if not p.is_pinned
         and p.text
         and len(p.text.strip()) >= 20
-        and p.likes >= channel.min_likes
+        and p.likes >= eff_min_likes
     ]
     if not filtered:
         return
