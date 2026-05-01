@@ -690,7 +690,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     )
     parts.append(f"🎚 Фильтр: {filter_str} (<code>/setfilter {channel_id} ...</code>)")
     if channel.filter_preset == "unfiltered":
-        parts.append(f"📊 Виральность: мин. лайков={channel.min_likes} (авто-0 для unfiltered)")
+        parts.append("📊 Виральность: отключена (фильтр unfiltered)")
     else:
         parts.append(f"📊 Виральность: мин. лайков={channel.min_likes}, мин. ретвитов={channel.min_retweets}")
 

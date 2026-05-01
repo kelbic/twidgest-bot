@@ -267,7 +267,7 @@ async def cmd_channels(message: Message) -> None:
         _preset = _gp(ch.filter_preset)
         filter_str = f"{_preset.emoji} {_preset.name}"
         if ch.filter_preset == "unfiltered":
-            threshold_str = f"лайков≥{ch.min_likes} (авто-0)"
+            threshold_str = "виральность откл."
         else:
             threshold_str = f"лайков≥{ch.min_likes}, ретв≥{ch.min_retweets}"
         lines.append(
