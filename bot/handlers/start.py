@@ -60,6 +60,7 @@ HELP = """\
 /addsource &lt;id&gt; @user — добавить Twitter-источник
 /addsource &lt;id&gt; vk:domain — добавить VK-источник
 /removesource &lt;id&gt; @user — удалить источник
+/setthreshold &lt;id&gt; likes=N retweets=N — порог виральности
 /regenerate &lt;id&gt; — перегенерить все источники канала через AI
 /status &lt;id&gt; — детальная статистика канала
 /deletechannel &lt;id&gt; — удалить канал

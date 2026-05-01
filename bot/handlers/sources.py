@@ -800,6 +800,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     parts.append("")
     parts.append("🛠 <b>Команды:</b>")
     parts.append(f"  <code>/sources {channel_id}</code> — управление источниками")
+    parts.append(f"  <code>/setthreshold {channel_id} likes=N retweets=N</code> — виральность")
     parts.append(f"  <code>/regenerate {channel_id}</code> — пересоздать через AI")
     images_cmd = "off" if channel.images_enabled else "on"
     parts.append(f"  <code>/setimages {channel_id} {images_cmd}</code> — переключить картинки")
