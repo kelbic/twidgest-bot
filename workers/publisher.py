@@ -26,7 +26,7 @@ from db.repositories.tweets import (
 )
 from db.repositories.users import is_tier_active
 from db.session import session_maker
-from prompts import build_digest_prompt
+from prompts import build_digest_prompt, build_unfiltered_digest_prompt
 from tiers import get_limits
 
 logger = logging.getLogger(__name__)
@@ -137,19 +137,15 @@ async def _process_channel(
             for t in queue
         ]
 
-        # unfiltered — не используем LLM, просто форматируем посты
+        # Выбираем промпт в зависимости от фильтра
         if channel.filter_preset == 'unfiltered':
-            lines = []
-            for t in digest_tweets:
-                lines.append(f'{t.text[:300]}\n<a href="{t.url}">→ Источник</a>')
-            digest_text = '\n\n---\n\n'.join(lines)
+            system_prompt = build_unfiltered_digest_prompt(channel.niche)
         else:
-            # Используем niche-промпт для этого канала
             system_prompt = build_digest_prompt(channel.niche)
-            digest_text = await _build_digest_with_prompt(llm, digest_tweets, system_prompt)
-            if not digest_text:
-                logger.warning("LLM failed digest for channel %d", channel.id)
-                return
+        digest_text = await _build_digest_with_prompt(llm, digest_tweets, system_prompt)
+        if not digest_text:
+            logger.warning("LLM failed digest for channel %d", channel.id)
+            return
 
         # Fake target для send_to_target
         fake_target = type("FakeTarget", (), {

@@ -292,6 +292,55 @@ def get_filter_mode(code: str) -> FilterMode:
 
 # === Digest prompt (для совместимости — оставляем простую версию) ===
 
+def build_unfiltered_prompt(niche_code: str = "general") -> str:
+    """Промпт для unfiltered режима — переводит и форматирует без SKIP."""
+    niche = get_niche(niche_code)
+
+    parts = [
+        f"Ты редактор русскоязычного Telegram-канала {niche.name}.",
+        f"Тема канала: {niche.topic}.",
+        "Переведи и адаптируй твит/пост для русской аудитории.",
+        "",
+        "ВАЖНО: Никогда не возвращай SKIP. Публикуй любой контент — это канал без фильтрации.",
+        "Если контент уже на русском — отредактируй и сократи для Telegram.",
+        "Если на английском — переведи и адаптируй.",
+        "",
+        BASE_SAFETY,
+        "",
+        BASE_FORMAT,
+    ]
+    return "\n".join(parts)
+
+
+def build_unfiltered_digest_prompt(niche_code: str = "general") -> str:
+    """Промпт дайджеста для unfiltered — переводит без SKIP."""
+    niche = get_niche(niche_code)
+
+    return f"""Ты редактор русскоязычного Telegram-канала {niche.name}.
+Тема канала: {niche.topic}.
+
+Тебе дан список постов. Составь дайджест на русском языке.
+Переводи англоязычные посты. НИКОГДА не пропускай посты — публикуй всё что дано.
+
+{BASE_SAFETY}
+
+ФОРМАТ ДАЙДЖЕСТА:
+🌐 <b>Дайджест: {niche.name}</b>
+<i>Подзаголовок одной фразой</i>
+
+1. <b>Заголовок темы 1</b>
+Краткий текст. <a href="URL">→ Источник</a>
+
+2. <b>Заголовок темы 2</b>
+...
+
+ПРАВИЛА:
+- 3-7 пунктов
+- Каждый пункт 200-400 знаков
+- Каждый со ссылкой на источник
+- Без рекламы, без призывов
+"""
+
 def build_digest_prompt(niche_code: str = "general") -> str:
     """Собирает system prompt для дайджеста."""
     niche = get_niche(niche_code)

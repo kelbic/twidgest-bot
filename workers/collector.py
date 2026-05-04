@@ -30,7 +30,7 @@ from db.repositories.tweets import (
 )
 from db.repositories.users import is_tier_active
 from db.session import session_maker
-from prompts import build_single_prompt, build_vk_prompt
+from prompts import build_single_prompt, build_vk_prompt, build_unfiltered_prompt
 from tiers import get_limits
 
 logger = logging.getLogger(__name__)
@@ -137,8 +137,12 @@ async def _process_channel(
     limits = get_limits(effective_tier)
     llm = llm_pro if limits.use_pro_llm else llm_default
 
-    niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
-    vk_niche_prompt = build_vk_prompt(channel.niche, channel.filter_preset)
+    if channel.filter_preset == 'unfiltered':
+        niche_prompt = build_unfiltered_prompt(channel.niche)
+        vk_niche_prompt = build_unfiltered_prompt(channel.niche)
+    else:
+        niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
+        vk_niche_prompt = build_vk_prompt(channel.niche, channel.filter_preset)
 
     fake_target = type("FakeTarget", (), {
         "id": channel.id,
