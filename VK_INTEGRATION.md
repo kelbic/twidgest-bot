@@ -26,3 +26,14 @@
 ## Следующий шаг
 git checkout main && git merge vk-sources && git push origin main
 
+
+## Известные баги и фиксы
+
+### ID reuse bug (исправлено 04.05.2026)
+**Проблема:** При удалении канала и создании нового с тем же id, паблишер видел
+старые записи DigestLog/PostLog и думал что дайджест уже был опубликован.
+**Причина:** delete_channel() не чистил DigestLog и PostLog (таблицы используют
+target_id = channel_id как внешний ключ, но без CASCADE).
+**Фикс:** db/repositories/channels.py — добавлена явная очистка DigestLog и PostLog
+при удалении канала.
+**Урок:** Любая таблица с target_id/channel_id должна чиститься в delete_channel().
