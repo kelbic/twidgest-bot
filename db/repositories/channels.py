@@ -88,7 +88,7 @@ async def delete_channel(
         return False
     # Явная очистка связанных таблиц (на случай если CASCADE не сработает в SQLite)
     from sqlalchemy import delete as sa_delete
-    from db.models import DigestQueueItem, RejectionLog, HealthNotification
+    from db.models import DigestQueueItem, RejectionLog, HealthNotification, DigestLog, PostLog
     await session.execute(
         sa_delete(DigestQueueItem).where(DigestQueueItem.channel_id == channel_id)
     )
@@ -97,6 +97,13 @@ async def delete_channel(
     )
     await session.execute(
         sa_delete(HealthNotification).where(HealthNotification.channel_id == channel_id)
+    )
+    # Чистим DigestLog и PostLog по target_id=channel_id
+    await session.execute(
+        sa_delete(DigestLog).where(DigestLog.target_id == channel_id)
+    )
+    await session.execute(
+        sa_delete(PostLog).where(PostLog.target_id == channel_id)
     )
     await session.delete(channel)
     await session.commit()
