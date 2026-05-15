@@ -105,6 +105,7 @@ async def delete_channel(
     await session.execute(
         sa_delete(PostLog).where(PostLog.target_id == channel_id)
     )
+
     await session.delete(channel)
     await session.commit()
     return True
