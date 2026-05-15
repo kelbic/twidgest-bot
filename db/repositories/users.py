@@ -27,7 +27,7 @@ async def get_or_create_user(
             await session.commit()
         return user
 
-    trial_expires = datetime.utcnow() + timedelta(days=30)
+    trial_expires = datetime.utcnow() + timedelta(days=14)
     user = User(tg_user_id=tg_user_id, tg_username=tg_username, tier="free",
                 tier_expires_at=trial_expires)
     session.add(user)
@@ -124,7 +124,7 @@ async def remove_target(session: AsyncSession, user_id: int, target_id: int) -> 
 
 
 async def is_tier_active(user: User) -> bool:
-    """Проверяет активность тарифа. Free = trial 30 дней, Pro = до expires_at."""
+    """Проверяет активность тарифа. Free = trial 14 дней, Pro = до expires_at."""
     if user.tier_expires_at is None:
         # Старые Free-юзеры без expires_at — даём доступ, но логируем
         return user.tier != "free"
