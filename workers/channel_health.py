@@ -110,32 +110,47 @@ def _build_diagnostic_message(
     channel: Channel, rejections: list[RejectionLog]
 ) -> str:
     """Формирует понятное сообщение юзеру о проблеме с каналом."""
-    # Статистика по источникам — кто чаще всего отказывается
+    total = len(rejections)
     source_stats = Counter(r.twitter_username for r in rejections)
     top_sources = source_stats.most_common(5)
 
     sources_str = "\n".join(
-        f"  • @{u}: {n} отказов"
+        f"  • @{u}: {n} отклонений"
         for u, n in top_sources
     )
 
+    advice_lines = []
+    # Если один источник даёт подавляющую долю отказов — называем виновника
+    if top_sources:
+        top_user, top_count = top_sources[0]
+        if total > 0 and top_count / total >= 0.6:
+            advice_lines.append(
+                f"🎯 Скорее всего, причина — источник <b>@{top_user}</b> "
+                f"({top_count} из {total} отклонений). Так бывает, когда аккаунт "
+                f"постит видео, картинки или короткие подписи, которые бот не может "
+                f"оформить в текстовый пост.\n"
+                f"   Решение: <code>/removesource {channel.id} @{top_user}</code>"
+            )
+
+    advice_lines.append(
+        f"• Добавьте больше <b>текстовых</b> новостных источников: "
+        f"<code>/addsource {channel.id} @username</code>"
+    )
+    advice_lines.append(
+        f"• Посмотреть текущие источники: <code>/sources {channel.id}</code>"
+    )
+    advice_lines.append(
+        f"• Сменить тему через готовый шаблон: <code>/templates</code>"
+    )
+    advice_str = "\n".join(advice_lines)
+
     return (
-        f"🔔 <b>Проблема с каналом «{channel.title}»</b>\n\n"
-        f"За последние 24 часа в твой канал не было опубликовано ни одного поста, "
-        f"при этом фильтр контента отсёк <b>{len(rejections)}</b> твитов.\n\n"
-        f"<b>Топ источников по отказам:</b>\n{sources_str}\n\n"
-        f"<b>Возможные причины:</b>\n"
-        f"• Тема канала содержит политически чувствительный контент (РФ-фильтр)\n"
-        f"• Источники постят преимущественно медицинский контент с дозировками\n"
-        f"• Источники постят рекламу/анонсы вместо новостей\n"
-        f"• Тема канала слишком узкая, твиты не соответствуют ожиданиям\n\n"
-        f"<b>Что можно сделать:</b>\n"
-        f"1. Удалить канал и пересоздать с другой темой:\n"
-        f"   /deletechannel {channel.id}\n"
-        f"   /createchannel ai &lt;новая тема&gt;\n"
-        f"2. Использовать готовый шаблон вместо AI: /templates\n"
-        f"3. Если уверен в теме — оставить как есть, бот продолжит проверять\n\n"
-        f"<i>Это уведомление приходит раз в неделю на канал.</i>"
+        f"🔔 <b>Канал «{channel.title}» молчит</b>\n\n"
+        f"За последние 24 часа не опубликовано ни одного поста, "
+        f"а бот отклонил <b>{total}</b> твитов — контент не прошёл обработку.\n\n"
+        f"<b>Источники по числу отклонений:</b>\n{sources_str}\n\n"
+        f"<b>Что можно сделать:</b>\n{advice_str}\n\n"
+        f"<i>Это уведомление приходит не чаще раза в неделю.</i>"
     )
 
 
