@@ -74,16 +74,33 @@ async def _last_single_post_time(
 
 
 async def _get_top_queue_items(
-    session: AsyncSession, channel_id: int, limit: int = 5
+    session: AsyncSession, channel_id: int, limit: int = 5,
+    per_source_cap: int = 2, pool: int = 40,
 ) -> list[DigestQueueItem]:
-    """Топ-N твитов из очереди по engagement."""
+    """Топ-N твитов, но не больше per_source_cap от одного источника.
+
+    Берём широкий пул по engagement, затем прореживаем по источнику,
+    чтобы один популярный аккаунт не занял все слоты.
+    """
     result = await session.execute(
         select(DigestQueueItem)
         .where(DigestQueueItem.channel_id == channel_id)
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
-        .limit(limit)
+        .limit(pool)
     )
-    return list(result.scalars().all())
+    rows = list(result.scalars().all())
+
+    picked: list[DigestQueueItem] = []
+    per_source: dict[str, int] = {}
+    for row in rows:
+        src = (row.twitter_username or "").lower()
+        if per_source.get(src, 0) >= per_source_cap:
+            continue
+        picked.append(row)
+        per_source[src] = per_source.get(src, 0) + 1
+        if len(picked) >= limit:
+            break
+    return picked
 
 
 async def run_viral_picker_cycle(
@@ -167,11 +184,10 @@ async def _process_hybrid_channel(
         for idx, top in enumerate(candidates, 1):
             if top.likes < MIN_LIKES_FOR_SINGLE:
                 logger.info(
-                    "Channel %d: candidate %d/%d has only %d likes, "
-                    "and remaining are weaker — stopping",
+                    "Channel %d: candidate %d/%d below like floor (%d), trying next",
                     channel.id, idx, len(candidates), top.likes,
                 )
-                return
+                continue
 
             logger.info(
                 "Channel %d: trying candidate %d/%d @%s likes=%d",
