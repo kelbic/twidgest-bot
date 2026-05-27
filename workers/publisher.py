@@ -143,8 +143,25 @@ async def _process_channel(
         else:
             system_prompt = build_digest_prompt(channel.niche)
         digest_text = await _build_digest_with_prompt(llm, digest_tweets, system_prompt)
-        if not digest_text:
-            logger.warning("LLM failed digest for channel %d", channel.id)
+        # LLM может вернуть пусто ИЛИ сентинел "SKIP" (не смог собрать дайджест —
+        # частый случай для крипто/новостных ниш, где фильтр душит контент).
+        # safe_sender такой текст всё равно заблокирует, поэтому отсекаем здесь
+        # и логируем провал, иначе last_digest=None и канал зацикливается.
+        _dt = (digest_text or "").strip()
+        if not _dt or _dt.upper().startswith("SKIP"):
+            logger.warning(
+                "LLM failed/SKIP digest for channel %d (niche=%s)",
+                channel.id, channel.niche,
+            )
+            from db.models import RejectionLog
+            for t in queue:
+                session.add(RejectionLog(
+                    channel_id=channel.id,
+                    tweet_id=t.tweet_id,
+                    twitter_username=t.twitter_username,
+                    reason="digest_failed",
+                ))
+            await session.commit()
             return
 
         # Fake target для send_to_target

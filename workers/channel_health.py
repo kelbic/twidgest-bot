@@ -35,7 +35,7 @@ from db.session import session_maker
 logger = logging.getLogger(__name__)
 
 # Константы воркера
-NO_POSTS_THRESHOLD_HOURS = 24
+NO_POSTS_THRESHOLD_HOURS = 12
 MIN_REJECTIONS_FOR_ALERT = 5
 NOTIFICATION_COOLDOWN_DAYS = 7
 
@@ -189,9 +189,12 @@ async def _check_channel(channel: Channel, bot: Bot) -> None:
         if age < timedelta(minutes=45):
             return
 
-        # Если последний пост был меньше 24ч назад — всё ок (для старых)
-        # Или канал молодой и ещё не успел опубликовать — всё ок (для молодых)
+        # Если последний пост был недавно — всё ок
         if last_post and (now - last_post) < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
+            logger.info(
+                "Channel %d healthy: last post %s ago",
+                channel.id, now - last_post,
+            )
             return
 
         # Канал молчит. Смотрим количество отказов LLM
