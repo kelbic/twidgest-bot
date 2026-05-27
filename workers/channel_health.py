@@ -122,20 +122,20 @@ def _build_diagnostic_message(
     advice_lines = []
 
     # Доля отказов именно из-за дайджеста (LLM вернул пусто/SKIP).
-    # Это типично для "тяжёлых" ниш (крипто, развлечения), где строгий
-    # фильтр душит контент — виноваты не источники, а пресет фильтра.
+    # Типично для "тяжёлых" ниш (крипто, развлечения): даже на мягком фильтре
+    # LLM на этапе rewrite режет хайповый контент. Помогает только unfiltered.
     digest_fails = sum(1 for r in rejections if r.reason == "digest_failed")
     heavy_niche = (channel.niche or "").lower() in ("crypto", "entertainment")
-    strict_filter = (channel.filter_preset or "") in ("community", "strict")
+    not_unfiltered = (channel.filter_preset or "") != "unfiltered"
 
-    if total > 0 and (digest_fails / total >= 0.5 or (heavy_niche and strict_filter)):
-        # Причина похожа на слишком строгий фильтр, а не на плохие источники
+    if total > 0 and not_unfiltered and (digest_fails / total >= 0.5 or heavy_niche):
+        # LLM душит контент на этапе rewrite — обычный фильтр не помогает,
+        # спасает только unfiltered-режим (raw, без фильтра ценности).
         advice_lines.append(
-            f"🎯 Похоже, причина — <b>строгий фильтр контента</b> для вашей темы. "
-            f"Для ниш вроде крипто и развлечений стандартный фильтр часто отсекает "
-            f"посты, которые считает рискованными.\n"
-            f"   Решение: смягчите фильтр командой "
-            f"<code>/setfilter {channel.id} loose</code>"
+            f"🎯 Похоже, бот отсекает контент вашей темы как «рискованный» "
+            f"(частое явление для крипто и развлечений). Смягчение обычного "
+            f"фильтра не поможет — включите режим без фильтрации по ценности:\n"
+            f"   <code>/setfilter {channel.id} unfiltered</code>"
         )
     elif top_sources:
         # Иначе — если один источник доминирует, называем виновника
