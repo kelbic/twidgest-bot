@@ -120,8 +120,25 @@ def _build_diagnostic_message(
     )
 
     advice_lines = []
-    # Если один источник даёт подавляющую долю отказов — называем виновника
-    if top_sources:
+
+    # Доля отказов именно из-за дайджеста (LLM вернул пусто/SKIP).
+    # Это типично для "тяжёлых" ниш (крипто, развлечения), где строгий
+    # фильтр душит контент — виноваты не источники, а пресет фильтра.
+    digest_fails = sum(1 for r in rejections if r.reason == "digest_failed")
+    heavy_niche = (channel.niche or "").lower() in ("crypto", "entertainment")
+    strict_filter = (channel.filter_preset or "") in ("community", "strict")
+
+    if total > 0 and (digest_fails / total >= 0.5 or (heavy_niche and strict_filter)):
+        # Причина похожа на слишком строгий фильтр, а не на плохие источники
+        advice_lines.append(
+            f"🎯 Похоже, причина — <b>строгий фильтр контента</b> для вашей темы. "
+            f"Для ниш вроде крипто и развлечений стандартный фильтр часто отсекает "
+            f"посты, которые считает рискованными.\n"
+            f"   Решение: смягчите фильтр командой "
+            f"<code>/setfilter {channel.id} loose</code>"
+        )
+    elif top_sources:
+        # Иначе — если один источник доминирует, называем виновника
         top_user, top_count = top_sources[0]
         if total > 0 and top_count / total >= 0.6:
             advice_lines.append(
@@ -146,7 +163,7 @@ def _build_diagnostic_message(
 
     return (
         f"🔔 <b>Канал «{channel.title}» молчит</b>\n\n"
-        f"За последние 24 часа не опубликовано ни одного поста, "
+        f"Уже несколько часов не опубликовано ни одного поста, "
         f"а бот отклонил <b>{total}</b> твитов — контент не прошёл обработку.\n\n"
         f"<b>Источники по числу отклонений:</b>\n{sources_str}\n\n"
         f"<b>Что можно сделать:</b>\n{advice_str}\n\n"
