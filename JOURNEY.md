@@ -120,3 +120,15 @@ In order of priority:
 ---
 
 If you're reading this as a recruiter: this project was designed as proof that I can take a product from ambiguous idea through market analysis to shipped, production code with real architectural decisions. The code is open, the commit history is honest, and the bot is live. Happy to discuss any part of it.
+
+## Backlog (отложенные технические улучшения)
+
+- **Per-channel post limit + notification.** Сейчас `max_posts_per_day` считается на пользователя — при нескольких каналах они конкурируют за квоту и молча замолкают. Временно поднят лимит pro 20→30 (28.05). Правильное решение: `posts_today(user_id, channel_id)` + уведомление владельцу при достижении лимита (продажа upgrade). **Зависимость:** сначала унифицировать дублирование в `publishing_policy` (4 места вызова), потом править в одном месте.
+- **Унификация publishing_policy.** Логика квот/dedup/фильтров продублирована в collector (2 места), publisher и viral_picker — 4 копии могут разойтись. Вынести в `core/publishing_policy.py`.
+- **Per-tenant LLM budget cap.** Когда будет 5+ платящих — circuit breaker против абьюзеров и багов в циклах.
+- **Alembic.** Перед первым серьёзным изменением схемы.
+- **Defense-in-depth content filter.** Детерминированный пост-фильтр после LLM (blocklist по паттернам). Сейчас защита только через промпт.
+- **Postgres + Redis.** Когда упрёмся в SQLite/in-memory кеши.
+- **Sentry / структурный лог.** При 10+ активных пользователях, когда грепать журнал станет нереально.
+- **Адаптивный cooldown health-уведомлений.** Сейчас 7 дней. Для каналов, молчащих 24ч+, повторять чаще.
+
