@@ -38,3 +38,9 @@ logs/
 backups/
 *.backup
 *.save
+phase0_essayist.py
+
+# SQLite database and WAL files (runtime artifacts)
+twidgest.db
+twidgest.db-shm
+twidgest.db-wal
