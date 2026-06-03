@@ -39,6 +39,16 @@ NO_POSTS_THRESHOLD_HOURS = 12
 MIN_REJECTIONS_FOR_ALERT = 5
 NOTIFICATION_COOLDOWN_DAYS = 7
 
+# Source-domination детектор: алерт, если один источник даёт большую долю
+# отказов даже на канале, который технически постит (не молчит 12ч+).
+SOURCE_DOMINATION_THRESHOLD = 0.60
+SOURCE_DOMINATION_MIN_REJECTIONS = 10
+SOURCE_DOMINATION_COOLDOWN_HOURS = 48
+
+# Reason-коды для HealthNotification (поле reason)
+REASON_SILENT = "high_rejection_rate"   # старый код, оставляем для совместимости
+REASON_SOURCE_DOMINATION = "source_domination"
+
 
 async def _get_active_channels(session: AsyncSession) -> list[Channel]:
     result = await session.execute(
@@ -92,17 +102,27 @@ async def _rejections_since(
 
 
 async def _was_recently_notified(
-    session: AsyncSession, channel_id: int
+    session: AsyncSession,
+    channel_id: int,
+    reason: str | None = None,
+    cooldown: timedelta | None = None,
 ) -> bool:
-    cutoff = datetime.utcnow() - timedelta(days=NOTIFICATION_COOLDOWN_DAYS)
-    result = await session.execute(
-        select(HealthNotification.id)
-        .where(
-            HealthNotification.channel_id == channel_id,
-            HealthNotification.sent_at > cutoff,
-        )
-        .limit(1)
+    """Был ли уже отправлен алерт за период cooldown.
+
+    Если reason=None — старое поведение (любой алерт на канал, default cooldown
+    NOTIFICATION_COOLDOWN_DAYS). Если задан — фильтруем по reason и cooldown
+    раздельно для каждого типа алерта.
+    """
+    if cooldown is None:
+        cooldown = timedelta(days=NOTIFICATION_COOLDOWN_DAYS)
+    cutoff = datetime.utcnow() - cooldown
+    query = select(HealthNotification.id).where(
+        HealthNotification.channel_id == channel_id,
+        HealthNotification.sent_at > cutoff,
     )
+    if reason is not None:
+        query = query.where(HealthNotification.reason == reason)
+    result = await session.execute(query.limit(1))
     return result.scalar_one_or_none() is not None
 
 
@@ -171,6 +191,30 @@ def _build_diagnostic_message(
     )
 
 
+def _build_source_domination_message(
+    channel: Channel,
+    dominant_user: str,
+    dominant_count: int,
+    total: int,
+) -> str:
+    """Алерт о том, что один источник заваливает отбор кандидатов."""
+    pct = round(100 * dominant_count / total) if total else 0
+    return (
+        f"⚠️ <b>Канал «{channel.title}» работает медленнее обычного</b>\n\n"
+        f"Источник <b>@{dominant_user}</b> заваливает отбор: "
+        f"<b>{dominant_count}</b> из <b>{total}</b> отказов за сутки "
+        f"({pct}%) приходится на него. Бот теряет много времени, "
+        f"отбраковывая эти твиты, и до публикации добирается мало "
+        f"кандидатов.\n\n"
+        f"<b>🎯 Решение:</b>\n"
+        f"<code>/removesource {channel.id} @{dominant_user}</code>\n\n"
+        f"Это удалит источник из канала. Бот сразу начнёт постить чаще, "
+        f"потому что больше не будет пытаться публиковать твиты, "
+        f"которые фильтр отклоняет.\n\n"
+        f"<i>Это уведомление приходит не чаще раза в 2 дня.</i>"
+    )
+
+
 async def run_channel_health_cycle(bot: Bot) -> None:
     logger.info("=== Channel health cycle started ===")
 
@@ -196,76 +240,140 @@ async def run_channel_health_cycle(bot: Bot) -> None:
 
 async def _check_channel(channel: Channel, bot: Bot) -> None:
     async with session_maker()() as session:
-        # Проверяем последний пост
         last_post = await _last_post_time(session, channel.id)
         now = datetime.utcnow()
-
         age = now - channel.created_at
 
         # Канал слишком молодой — даже 1 цикла не было, ждём
         if age < timedelta(minutes=45):
             return
 
-        # Если последний пост был недавно — всё ок
-        if last_post and (now - last_post) < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
+        # Собираем отказы всегда — нужны и для silent, и для source-domination.
+        # Период — min(age, 24ч), чтобы для молодых каналов не запрашивать пустоту.
+        lookback = min(age, timedelta(hours=24))
+        rejections = await _rejections_since(session, channel.id, lookback)
+
+        is_silent = not (last_post and (now - last_post) < timedelta(hours=NO_POSTS_THRESHOLD_HOURS))
+
+        # === ВЕТКА 1: SILENT (приоритет) ===
+        if is_silent:
+            # Адаптивный порог по возрасту канала
+            if age < timedelta(hours=3):
+                min_rejections = 3
+            elif age < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
+                min_rejections = 5
+            else:
+                min_rejections = MIN_REJECTIONS_FOR_ALERT
+
+            if len(rejections) < min_rejections:
+                logger.info(
+                    "Channel %d silent (age %s) but only %d rejections (need %d) — not alerting",
+                    channel.id, age, len(rejections), min_rejections,
+                )
+                return
+
+            if await _was_recently_notified(
+                session, channel.id, reason=REASON_SILENT,
+                cooldown=timedelta(days=NOTIFICATION_COOLDOWN_DAYS),
+            ):
+                logger.info(
+                    "Channel %d silent: already notified recently, skipping",
+                    channel.id,
+                )
+                return
+
+            # SILENT-алерт: шлём уведомление в личку владельцу
+            message_text = _build_diagnostic_message(channel, rejections)
+            try:
+                await bot.send_message(
+                    chat_id=channel.user_id,
+                    text=message_text,
+                    disable_web_page_preview=True,
+                )
+                session.add(HealthNotification(
+                    channel_id=channel.id,
+                    user_id=channel.user_id,
+                    reason=REASON_SILENT,
+                ))
+                await session.commit()
+                logger.info(
+                    "Sent silent alert to user %d for channel %d "
+                    "(%d rejections in 24h)",
+                    channel.user_id, channel.id, len(rejections),
+                )
+            except TelegramForbiddenError:
+                logger.info("User %d blocked the bot, can't send silent alert", channel.user_id)
+            except Exception:
+                logger.exception(
+                    "Failed to send silent alert to user %d", channel.user_id
+                )
+            return
+
+        # === ВЕТКА 2: SOURCE-DOMINATION ===
+        # Канал не молчит (постит хотя бы раз в 12ч), но смотрим — не заваливает ли
+        # один источник большую долю отказов.
+        total = len(rejections)
+        if total < SOURCE_DOMINATION_MIN_REJECTIONS:
             logger.info(
-                "Channel %d healthy: last post %s ago",
-                channel.id, now - last_post,
+                "Channel %d healthy: last post %s ago, only %d rejections",
+                channel.id, now - last_post if last_post else "n/a", total,
             )
             return
 
-        # Канал молчит. Смотрим количество отказов LLM
-        rejections = await _rejections_since(session, channel.id, age)
-
-        # Адаптивный порог в зависимости от возраста канала
-        # Молодой канал (1-3ч) — порог ниже (3 отказа)
-        # Старый канал (24ч+) — порог выше (5 отказов), нужно больше уверенности
-        if age < timedelta(hours=3):
-            min_rejections = 3
-        elif age < timedelta(hours=NO_POSTS_THRESHOLD_HOURS):
-            min_rejections = 5
-        else:
-            min_rejections = MIN_REJECTIONS_FOR_ALERT
-
-        if len(rejections) < min_rejections:
+        source_stats = Counter(r.twitter_username for r in rejections)
+        if not source_stats:
             logger.info(
-                "Channel %d silent (age %s) but only %d rejections (need %d) — not alerting",
-                channel.id, age, len(rejections), min_rejections,
+                "Channel %d healthy: last post %s ago, no source stats",
+                channel.id, now - last_post if last_post else "n/a",
             )
             return
 
-        # Проверяем что недавно не уведомляли
-        if await _was_recently_notified(session, channel.id):
+        dominant_user, dominant_count = source_stats.most_common(1)[0]
+        share = dominant_count / total
+
+        if share < SOURCE_DOMINATION_THRESHOLD:
             logger.info(
-                "Channel %d already notified recently, skipping",
-                channel.id,
+                "Channel %d healthy: last post %s ago, top source @%s has %.0f%% (need %.0f%%)",
+                channel.id, now - last_post if last_post else "n/a",
+                dominant_user, share * 100, SOURCE_DOMINATION_THRESHOLD * 100,
             )
             return
 
-        # Шлём уведомление в личку владельцу
-        message_text = _build_diagnostic_message(channel, rejections)
+        if await _was_recently_notified(
+            session, channel.id, reason=REASON_SOURCE_DOMINATION,
+            cooldown=timedelta(hours=SOURCE_DOMINATION_COOLDOWN_HOURS),
+        ):
+            logger.info(
+                "Channel %d source-domination by @%s, but already notified recently",
+                channel.id, dominant_user,
+            )
+            return
+
+        # SOURCE-DOMINATION-алерт
+        message_text = _build_source_domination_message(
+            channel, dominant_user, dominant_count, total,
+        )
         try:
             await bot.send_message(
                 chat_id=channel.user_id,
                 text=message_text,
                 disable_web_page_preview=True,
             )
-            # Записываем что уведомили
             session.add(HealthNotification(
                 channel_id=channel.id,
                 user_id=channel.user_id,
-                reason="high_rejection_rate",
+                reason=REASON_SOURCE_DOMINATION,
             ))
             await session.commit()
             logger.info(
-                "Sent health alert to user %d for channel %d "
-                "(%d rejections in 24h)",
-                channel.user_id, channel.id, len(rejections),
+                "Sent source-domination alert to user %d for channel %d "
+                "(@%s: %d of %d rejections, %.0f%%)",
+                channel.user_id, channel.id, dominant_user,
+                dominant_count, total, share * 100,
             )
         except TelegramForbiddenError:
-            # Юзер заблокировал бота — это нормально, не алармим
-            logger.info("User %d blocked the bot, can't send health alert", channel.user_id)
+            logger.info("User %d blocked the bot, can't send source-domination alert", channel.user_id)
         except Exception:
             logger.exception(
-                "Failed to send health alert to user %d", channel.user_id
+                "Failed to send source-domination alert to user %d", channel.user_id
             )
