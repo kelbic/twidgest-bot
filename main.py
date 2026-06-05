@@ -92,6 +92,7 @@ async def main() -> None:
     scheduler.add_job(
         run_expiry_check,
         trigger=IntervalTrigger(hours=24),
+        kwargs={"bot": bot},
     )
     scheduler.add_job(
         run_viral_picker_cycle,

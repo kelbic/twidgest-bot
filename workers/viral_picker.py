@@ -84,7 +84,10 @@ async def _get_top_queue_items(
     """
     result = await session.execute(
         select(DigestQueueItem)
-        .where(DigestQueueItem.channel_id == channel_id)
+        .where(
+            DigestQueueItem.channel_id == channel_id,
+            DigestQueueItem.skipped_at.is_(None),
+        )
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(pool)
     )
@@ -182,7 +185,7 @@ async def _process_hybrid_channel(
 
         # Идём по топу, пробуем каждый
         for idx, top in enumerate(candidates, 1):
-            if top.likes < MIN_LIKES_FOR_SINGLE:
+            if top.likes < channel.min_likes:
                 logger.info(
                     "Channel %d: candidate %d/%d below like floor (%d), trying next",
                     channel.id, idx, len(candidates), top.likes,
@@ -206,21 +209,23 @@ async def _process_hybrid_channel(
                 )
                 continue
 
-            rewritten = await _rewrite(llm, top, niche_prompt)
+            rewritten, skip_reason = await _rewrite(llm, top, niche_prompt)
             if not rewritten:
-                # SKIP — НЕ удаляем из очереди, может пойти в digest
-                # Логируем отказ для health-диагностики
+                # SKIP — помечаем skipped_at, чтобы не пробовать снова в след. циклах.
+                # Из очереди НЕ удаляем — может пойти в digest (там промпт мягче).
+                from datetime import datetime as _dt
+                top.skipped_at = _dt.utcnow()
                 from db.models import RejectionLog
                 session.add(RejectionLog(
                     channel_id=channel.id,
                     tweet_id=top.tweet_id,
                     twitter_username=top.twitter_username,
-                    reason="skip_viral",
+                    reason=f"skip_viral:{skip_reason}",
                 ))
                 await session.commit()
                 logger.info(
-                    "Channel %d: candidate %d/%d got SKIP, trying next",
-                    channel.id, idx, len(candidates),
+                    "Channel %d: candidate %d/%d got SKIP (%s), trying next",
+                    channel.id, idx, len(candidates), skip_reason,
                 )
                 continue
 
@@ -298,7 +303,7 @@ async def _rewrite(llm, item, system_prompt):
     )
     result = await llm._call_with_retry(system_prompt, user_prompt, max_tokens=500)
     if not result:
-        return None
+        return None, "llm_empty"
     clean = result.strip()
     first_token = (
         clean.split()[0].upper().strip(".,;:!?<>[]")
@@ -306,13 +311,13 @@ async def _rewrite(llm, item, system_prompt):
         else ""
     )
     if first_token == "SKIP":
-        return None
+        return None, "skip_token"
     if clean.upper().startswith("SKIP") and len(clean) < 80:
-        return None
+        return None, "skip_short"
     meta_markers = (
         "я не вижу", "пожалуйста скопируйте", "i don't see",
         "i cannot", "i'm sorry", "as an ai",
     )
     if any(m in clean.lower() for m in meta_markers):
-        return None
-    return clean
+        return None, "meta_marker"
+    return clean, None

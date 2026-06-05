@@ -28,6 +28,7 @@ class User(Base):
     tg_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tier: Mapped[str] = mapped_column(String(16), default="free", nullable=False)
     tier_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    trial_notify_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -203,6 +204,7 @@ class DigestQueueItem(Base):
     retweets: Mapped[int] = mapped_column(Integer, default=0)
     media_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     queued_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    skipped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 
 class PostLog(Base):
