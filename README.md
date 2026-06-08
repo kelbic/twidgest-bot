@@ -51,6 +51,7 @@ flowchart TB
             ViralPicker["viral_picker<br/>every 1h"]
             ChannelHealth["channel_health<br/>every 1h"]
             Expiry["expiry-check<br/>every 24h"]
+            Cleanup["queue_cleanup<br/>every 24h"]
         end
 
         subgraph Handlers["Handlers"]
@@ -110,6 +111,8 @@ Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET
 
 **Template + AI hybrid onboarding.** 15 curated templates for popular niches (AI, crypto, longevity, F1, NBA, etc.) give instant-start UX. If the topic isn't in the catalog, `/createchannel ai <description>` asks the LLM to suggest 12 relevant X accounts with one-line explanations for each.
 
+**Separate windows for single and digest.** Hybrid channels publish two types of content: individual fresh tweets (single posts, 24-hour freshness window) and periodic digests (14-hour window, "best of period"). Single posts mark tweets with `posted_at_single` instead of removing them — so digests can include both fresh tweets and already-published singles in a unified "overview". A daily cleanup job removes queue entries older than 7 days to keep disk usage stable.
+
 ## Pricing
 
 | Tier | Price | Sources | Channels | Posts/day |
@@ -159,10 +162,11 @@ Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET
     │
     └── workers/
         ├── collector.py           Fetch Twitter+VK, filter, post/enqueue
-        ├── publisher.py           Digest builder and publisher
-        ├── viral_picker.py        Picks top posts for hybrid mode
+        ├── publisher.py           Digest builder (14h window, includes single posts)
+        ├── viral_picker.py        Single-style posts for hybrid mode (24h window)
         ├── channel_health.py      Channel health checks
-        └── expiry_check.py        Daily tier downgrade + trial expiry
+        ├── expiry_check.py        Daily tier downgrade + T-1 trial notification
+        └── queue_cleanup.py       Daily TTL cleanup of digest_queue (7-day retention)
 
 
 ## Running locally

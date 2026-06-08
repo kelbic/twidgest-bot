@@ -60,10 +60,15 @@ twidgest-bot/
 │   ├── collector.py              # Every 30 min: fetch tweets,
 │   │                             #   filter by engagement, send to digest queue
 │   ├── publisher.py              # Every 1h: build & post digests
+│   │                             #   (window: last 14h, includes single posts)
 │   ├── viral_picker.py           # Every 1h: pick top-1 from queue
-│   │                             #   for hybrid channels (single-style post)
+│   │                             #   for hybrid channels (single-style post,
+│   │                             #   window: last 24h, marks posted_at_single)
 │   ├── channel_health.py         # Every 1h: notify owner if channel silent 24h+
-│   └── expiry_check.py           # Every 24h: downgrade expired Pro tiers
+│   ├── expiry_check.py           # Every 24h: downgrade expired Pro tiers,
+│   │                             #   notify Free users T-1 day before trial expiry
+│   └── queue_cleanup.py          # Every 24h: delete digest_queue rows
+│                                 #   older than 7 days (TTL, disk hygiene)
 │
 ├── tests/
 │   ├── test_topic_dedup.py       # 17 unit tests on Jaccard similarity
@@ -98,9 +103,17 @@ twidgest-bot/
 ### "Хочу изменить логику публикации (digest или single)"
 
 - Digest: `workers/publisher.py`, метод `_process_channel`
+  - Берёт твиты из `digest_queue` за окно **14 часов** (`queued_at > now - 14h`)
+  - Включает твиты, опубликованные в single (digest = "обзор лучшего за период")
+  - После публикации удаляет твиты из очереди через `clear_digest_items`
 - Single для hybrid режима: `workers/viral_picker.py`, метод `_process_hybrid_channel`
+  - Берёт твиты за окно **24 часа** (`queued_at > now - 24h`)
+  - Фильтрует `posted_at_single IS NULL AND skipped_at IS NULL`
+  - После публикации помечает `posted_at_single = now()` (не удаляет — для digest)
+  - Использует `channel.min_likes` из БД (не хардкод)
 - Single для пуристого single режима: `workers/collector.py`, после `enqueue_for_digest`
 - ⚠️ Все три места независимо проверяют квоты, dedup, фильтры
+- ⚠️ Колонки `posted_at_single`, `skipped_at` в `digest_queue` — не удалять без понимания lifecycle
 
 ### "Хочу добавить новый тариф или поменять лимиты"
 
@@ -137,6 +150,7 @@ journalctl -u twidgest-bot --since "10 minutes ago" --no-pager | tail -50
 3. **`tiers.py` структура** — наследие, важна совместимость с активными платежами.
 4. **`legal/*.md`** — изменения только с юр.консультацией.
 5. **`venv/`, `*.db`, `.env`** — никогда не комитить (защищено `.gitignore`).
+6. **Engagement thresholds в коде** — пороги `min_likes` / `min_retweets` приходят из `channel.min_likes` / `channel.min_retweets` (per-channel настройка пользователя). НЕ добавлять глобальные константы-пороги в `workers/viral_picker.py` или `workers/collector.py` — они переопределят настройки пользователей.
 
 ## Команды для быстрой проверки
 
@@ -197,3 +211,9 @@ sqlite3 twidgest.db "SELECT id, title, filter_preset FROM channels;"
 4. **Default `filter_mode` при создании каналов = "strict".** Юзер может переключить на "loose" через `/setfilter <id> loose` если нужны новости/реакции (BBC headlines).
 
 5. **Twitter не покрывает русский региональный контент** (Чебоксары, Таро на русском, маникюр). Workaround: команда `/tg_help` для manual setup TG-каналов как источников.
+
+6. **Хардкод констант поверх БД-настроек — опасно.** Реальный кейс: `MIN_LIKES_FOR_SINGLE = 100` в `viral_picker.py` переопределял `channel.min_likes` пользователя. Пользователь настраивал в боте порог 5, бот игнорировал и использовал 100. Каналы молчали часами. Правило: при добавлении константы-порога — проверить, нет ли уже соответствующего поля в БД-модели канала/пользователя.
+
+7. **Mark vs delete для пост-публикационных меток.** Когда нужно "запомнить что что-то произошло" — добавить колонку с timestamp (`posted_at_single`, `skipped_at`, `notified_at`), а не удалять запись. Сохраняет историю + гибкость для будущих сценариев (digest как "обзор лучшего за период" использует записи, помеченные `posted_at_single`).
+
+8. **Свежесть твитов важнее их виральности.** Без фильтра по `queued_at` старые виральные твиты (накопленные за недели) вытесняют свежие новости в SELECT-запросах с `ORDER BY engagement DESC`. Канал начинает публиковать "новости" 2-недельной давности, подписчики отписываются. Любой SELECT из `digest_queue` для публикации должен иметь `WHERE queued_at > now - N hours`.
