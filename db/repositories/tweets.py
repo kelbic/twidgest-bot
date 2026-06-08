@@ -72,6 +72,7 @@ async def get_digest_queue(
         .where(
             DigestQueueItem.user_id == user_id,
             DigestQueueItem.channel_id == channel_id,
+            DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=14),
         )
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(max_items)

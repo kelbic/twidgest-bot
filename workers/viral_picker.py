@@ -87,6 +87,8 @@ async def _get_top_queue_items(
         .where(
             DigestQueueItem.channel_id == channel_id,
             DigestQueueItem.skipped_at.is_(None),
+            DigestQueueItem.posted_at_single.is_(None),
+            DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=24),
         )
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(pool)
@@ -271,8 +273,11 @@ async def _process_hybrid_channel(
                 photo_url=photo_url,
             )
             if ok:
-                # Только успешно опубликованный твит удаляем из очереди
-                await clear_digest_items(session, [top.id])
+                # Помечаем как опубликованный в single (не удаляем — для digest pool).
+                # Single больше не возьмёт его, а digest может включить как
+                # "обзор лучшего за период". После digest он уже удалится.
+                top.posted_at_single = datetime.utcnow()
+                await session.commit()
                 await log_post(
                     session, user.tg_user_id, channel.id, is_digest=False,
                     topic_signature=compute_topic_signature(top.text),

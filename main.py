@@ -29,6 +29,7 @@ from workers.expiry_check import run_expiry_check
 from workers.publisher import run_publish_cycle
 from workers.channel_health import run_channel_health_cycle
 from workers.viral_picker import run_viral_picker_cycle
+from workers.queue_cleanup import run_queue_cleanup
 
 
 async def main() -> None:
@@ -103,6 +104,10 @@ async def main() -> None:
         run_channel_health_cycle,
         trigger=IntervalTrigger(hours=1),
         kwargs={"bot": bot},
+    )
+    scheduler.add_job(
+        run_queue_cleanup,
+        trigger=IntervalTrigger(hours=24),
     )
     scheduler.start()
     logging.info(
