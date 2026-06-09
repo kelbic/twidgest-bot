@@ -45,6 +45,7 @@ async def enqueue_for_digest(
     likes: int,
     retweets: int,
     media_url: str | None = None,
+    tweet_created_at: datetime | None = None,
 ) -> None:
     item = DigestQueueItem(
         user_id=user_id,
@@ -56,6 +57,7 @@ async def enqueue_for_digest(
         likes=likes,
         retweets=retweets,
         media_url=media_url,
+        tweet_created_at=tweet_created_at,
     )
     session.add(item)
     try:
@@ -73,6 +75,7 @@ async def get_digest_queue(
             DigestQueueItem.user_id == user_id,
             DigestQueueItem.channel_id == channel_id,
             DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=14),
+            DigestQueueItem.tweet_created_at > datetime.utcnow() - timedelta(hours=48),
         )
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(max_items)

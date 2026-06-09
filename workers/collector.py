@@ -206,6 +206,7 @@ async def _process_channel(
                         likes=tw.likes,
                         retweets=tw.retweets,
                         media_url=tw.media_url,
+                        tweet_created_at=tw.parsed_created_at,
                     )
                     await mark_processed(session, user.tg_user_id, tw.id, tw.username)
                     continue
@@ -343,6 +344,11 @@ async def _process_vk_source(
                 continue
 
             if channel.mode in ("digest", "hybrid"):
+                # VK: парсер даты не реализован, fallback на utcnow().
+                # VK не активен сейчас (0 источников), защита на будущее.
+                # TODO: добавить VKPost.parsed_created_at когда VK будет
+                # активно использоваться.
+                from datetime import datetime as _dt
                 await enqueue_for_digest(
                     session=session,
                     user_id=user.tg_user_id,
@@ -354,6 +360,7 @@ async def _process_vk_source(
                     likes=post.likes,
                     retweets=post.reposts,
                     media_url=post.image_url,
+                    tweet_created_at=_dt.utcnow(),
                 )
                 await mark_processed(session, user.tg_user_id, post_uid, identifier)
                 continue

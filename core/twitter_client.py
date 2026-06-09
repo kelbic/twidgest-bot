@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -28,6 +29,18 @@ class Tweet:
     @property
     def engagement(self) -> int:
         return self.likes + self.retweets * 3
+
+    @property
+    def parsed_created_at(self) -> datetime:
+        """Парсит createdAt от Twitter API ('Tue Jun 09 19:33:45 +0000 2026')
+        в naive UTC datetime. При ошибке возвращает now-30d (fail-safe:
+        битый формат → твит не пройдёт фильтр свежести)."""
+        try:
+            dt = datetime.strptime(self.created_at, "%a %b %d %H:%M:%S %z %Y")
+            return dt.replace(tzinfo=None)
+        except (ValueError, TypeError):
+            logger.warning("Failed to parse tweet date: %r", self.created_at)
+            return datetime.utcnow() - timedelta(days=30)
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> "Tweet":

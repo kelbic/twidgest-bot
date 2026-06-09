@@ -89,6 +89,7 @@ async def _get_top_queue_items(
             DigestQueueItem.skipped_at.is_(None),
             DigestQueueItem.posted_at_single.is_(None),
             DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=24),
+            DigestQueueItem.tweet_created_at > datetime.utcnow() - timedelta(hours=48),
         )
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(pool)
