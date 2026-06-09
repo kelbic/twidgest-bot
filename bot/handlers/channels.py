@@ -281,7 +281,9 @@ async def cmd_channels(message: Message) -> None:
         "\n<b>Управление:</b>\n"
         "  /sources &lt;id&gt; — источники канала\n  /status &lt;id&gt; — детальная статистика\n"
         "  /addsource &lt;id&gt; @user — добавить\n"
-        "  /removesource &lt;id&gt; @user — удалить\n  /regenerate &lt;id&gt; — пересоздать источники\n  /setimages &lt;id&gt; on|off — картинки в канале\n"
+        "  /removesource &lt;id&gt; @user — удалить\n"
+        "  /scout &lt;id&gt; — AI-скаут: подобрать новые источники\n"
+        "  /regenerate &lt;id&gt; — пересоздать источники\n  /setimages &lt;id&gt; on|off — картинки в канале\n"
         "  /deletechannel &lt;id&gt; — удалить канал"
     )
     await message.answer("\n\n".join(lines))
