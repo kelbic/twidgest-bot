@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.llm_client import DigestTweet, OpenRouterClient
-from core.safe_sender import send_to_target
+from core.safe_sender import ChannelTarget, send_to_target
 from db.models import Channel, User
 from db.repositories.tweets import (
     clear_digest_items,
@@ -170,12 +170,10 @@ async def _process_channel(
             await session.commit()
             return
 
-        # Fake target для send_to_target
-        fake_target = type("FakeTarget", (), {
-            "id": channel.id,
-            "chat_id": channel.target_chat_id,
-            "is_active": True,
-        })()
+        fake_target = ChannelTarget(
+            channel_id=channel.id,
+            chat_id=channel.target_chat_id,
+        )
 
         ok = await send_to_target(bot, session, fake_target, digest_text)
         if not ok:

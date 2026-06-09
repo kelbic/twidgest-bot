@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select, func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -282,13 +283,22 @@ async def _check_channel(channel: Channel, bot: Bot) -> None:
                 )
                 return
 
-            # SILENT-алерт: шлём уведомление в личку владельцу
+            # SILENT-алерт: шлём уведомление в личку владельцу.
+            # Кнопка скаута: алерт перестаёт быть «у тебя проблема»
+            # и становится «нажми — я починю».
             message_text = _build_diagnostic_message(channel, rejections)
+            scout_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="🔍 Подобрать новые источники",
+                    callback_data=f"scoutrun:{channel.id}",
+                )
+            ]])
             try:
                 await bot.send_message(
                     chat_id=channel.user_id,
                     text=message_text,
                     disable_web_page_preview=True,
+                    reply_markup=scout_kb,
                 )
                 session.add(HealthNotification(
                     channel_id=channel.id,

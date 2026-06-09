@@ -279,3 +279,28 @@ class RejectionLog(Base):
         DateTime, server_default=func.now(), index=True
     )
 
+
+
+class ScoutSuggestion(Base):
+    """Кандидат-источник, предложенный скаутом для канала.
+
+    HIL: бот никогда не добавляет источник сам — только владелец кнопкой.
+    applied_at заполняется в момент добавления в ChannelSource.
+    stats — человекочитаемая строка метрик превалидации (для повторного
+    показа карточки без нового платного поиска).
+    """
+
+    __tablename__ = "scout_suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    username: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(String(255), default="")
+    stats: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )

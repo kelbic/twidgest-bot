@@ -1,7 +1,19 @@
-"""Отправка в Telegram-канал с обработкой типичных ошибок и автодеактивацией target."""
+"""Отправка в Telegram-канал с обработкой типичных ошибок и автодеактивацией.
+
+ФИКС кросс-тенантного бага: раньше воркеры передавали анонимный FakeTarget
+с id=channel.id, а _deactivate_target гасил строку в таблице targets по этому
+id. Channel.id и Target.id — независимые автоинкременты, поэтому при потере
+доступа к каналу N деактивировался ЧУЖОЙ target с совпавшим id, а сам канал
+оставался активным и фейлился каждый цикл.
+
+Теперь воркеры передают ChannelTarget, и деактивация бьёт ровно в Channel,
+а владелец получает уведомление (best-effort), почему канал замолчал.
+"""
 from __future__ import annotations
 
+import asyncio
 import logging
+from dataclasses import dataclass
 
 from aiogram import Bot
 from aiogram.exceptions import (
@@ -12,21 +24,31 @@ from aiogram.exceptions import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Target
+from db.models import Channel
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChannelTarget:
+    """Куда постим: канал из модели Channel."""
+
+    channel_id: int
+    chat_id: int
 
 
 async def send_to_target(
     bot: Bot,
     session: AsyncSession,
-    target: Target,
+    target: ChannelTarget,
     text: str,
     photo_url: str | None = None,
 ) -> bool:
     """Шлёт пост в Telegram. Если photo_url задан — отправляет как фото с подписью.
-    
-    Возвращает True при успехе, False при ошибке. Деактивирует target при критичных ошибках.
+
+    Возвращает True при успехе, False при ошибке.
+    При критичных ошибках (бот выкинут из канала, чат не существует)
+    деактивирует Channel и уведомляет владельца.
     """
 
     # ПОСЛЕДНЯЯ ЛИНИЯ ОБОРОНЫ: defense-in-depth от мета-ответов LLM
@@ -105,7 +127,6 @@ async def send_to_target(
             target.chat_id,
             exc.retry_after,
         )
-        import asyncio
         await asyncio.sleep(exc.retry_after)
         try:
             if photo_url:
@@ -117,18 +138,22 @@ async def send_to_target(
             logger.exception("Retry after rate-limit also failed for %s", target.chat_id)
             return False
     except TelegramForbiddenError as exc:
-        # Бот удалён из канала / заблокирован — деактивируем
-        logger.warning("Bot forbidden in chat %s: %s. Deactivating target.", target.chat_id, exc)
-        await _deactivate_target(session, target.id)
+        # Бот удалён из канала / заблокирован — деактивируем Channel
+        logger.warning(
+            "Bot forbidden in chat %s: %s. Deactivating channel %d.",
+            target.chat_id, exc, target.channel_id,
+        )
+        await _deactivate_channel(bot, session, target.channel_id)
         return False
     except TelegramBadRequest as exc:
         # chat not found / chat_id wrong / parse error
         msg = str(exc).lower()
         if "chat not found" in msg or "not enough rights" in msg or "user is deactivated" in msg:
             logger.warning(
-                "Target %s unrecoverable: %s. Deactivating.", target.chat_id, exc
+                "Channel %d unrecoverable (chat %s): %s. Deactivating.",
+                target.channel_id, target.chat_id, exc,
             )
-            await _deactivate_target(session, target.id)
+            await _deactivate_channel(bot, session, target.channel_id)
         else:
             logger.warning("Telegram bad request for %s: %s", target.chat_id, exc)
         return False
@@ -137,9 +162,41 @@ async def send_to_target(
         return False
 
 
-async def _deactivate_target(session: AsyncSession, target_id: int) -> None:
-    result = await session.execute(select(Target).where(Target.id == target_id))
-    target = result.scalar_one_or_none()
-    if target:
-        target.is_active = False
-        await session.commit()
+async def _deactivate_channel(
+    bot: Bot, session: AsyncSession, channel_id: int
+) -> None:
+    """Деактивирует Channel и уведомляет владельца (best-effort)."""
+    result = await session.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )
+    channel = result.scalar_one_or_none()
+    if channel is None:
+        logger.error("Cannot deactivate: channel %d not found", channel_id)
+        return
+
+    channel.is_active = False
+    await session.commit()
+    logger.warning(
+        "Channel %d («%s») deactivated: bot lost access to chat %s",
+        channel.id, channel.title, channel.target_chat_id,
+    )
+
+    # Уведомляем владельца, иначе он не поймёт, почему канал замолчал
+    try:
+        await bot.send_message(
+            chat_id=channel.user_id,
+            text=(
+                f"⚠️ Канал <b>«{channel.title}»</b> остановлен: бот потерял "
+                f"доступ к привязанному Telegram-каналу (удалён из админов "
+                f"или канал не существует).\n\n"
+                f"Верни бота админом с правом Post Messages и перепривяжи "
+                f"канал — форвардни в бота любое сообщение из него. "
+                f"Список каналов: /channels"
+            ),
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        logger.info(
+            "Could not notify owner %d about channel %d deactivation",
+            channel.user_id, channel.id,
+        )

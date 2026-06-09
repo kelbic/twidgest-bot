@@ -15,7 +15,7 @@ from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from bot.handlers import admin, billing, channels, forward, sources, start, targets
+from bot.handlers import admin, billing, channels, forward, scout, sources, start, targets
 from bot.middlewares.admin_check import AdminOnlyMiddleware
 from bot.middlewares.rate_limit import RateLimitMiddleware
 from config import Config
@@ -52,6 +52,7 @@ async def main() -> None:
 
     dp.include_router(start.router)
     dp.include_router(sources.router)
+    dp.include_router(scout.router)
     dp.include_router(targets.router)
     dp.include_router(billing.router)
     dp.include_router(forward.router)
