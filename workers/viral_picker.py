@@ -17,12 +17,13 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.candidate_ranker import rank_candidates
 from core.llm_client import OpenRouterClient
 from config import Config
 from core.image_picker import fetch_image_url_for_keywords
-from core.safe_sender import send_to_target
+from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import compute_topic_signature, is_duplicate_topic
-from db.models import Channel, DigestQueueItem, PostLog, User
+from db.models import Channel, DigestQueueItem, PostLog, RejectionLog, User
 from db.repositories.tweets import clear_digest_items, log_post, posts_today
 from db.repositories.users import is_tier_active
 from db.session import session_maker
@@ -190,6 +191,63 @@ async def _process_hybrid_channel(
             logger.info("Channel %d: queue empty, no viral pick", channel.id)
             return
 
+        # === РЕВЬЮВЕР-РАНКЕР ===
+        # Один батч-вызов дешёвой LLM на всех кандидатов сразу.
+        # junk → skipped_at + RejectionLog (в digest твит всё ещё может попасть,
+        # там промпт мягче — та же семантика, что у обычного SKIP).
+        # Остальные сортируются по interest. При сбое LLM — fail-open:
+        # остаёмся на исходном порядке по engagement, канал НЕ молчит.
+        ranking = await rank_candidates(llm, channel, candidates)
+        if ranking is None:
+            logger.warning(
+                "Channel %d: ranker unavailable, fail-open to engagement order",
+                channel.id,
+            )
+        else:
+            kept: list[DigestQueueItem] = []
+            for c in candidates:
+                verdict = ranking.get(c.id)
+                if verdict is None:
+                    # Ранкер не вынес вердикт по этому id — не наказываем твит
+                    kept.append(c)
+                    continue
+                if verdict.junk:
+                    c.skipped_at = datetime.utcnow()
+                    session.add(RejectionLog(
+                        channel_id=channel.id,
+                        tweet_id=c.tweet_id,
+                        twitter_username=c.twitter_username,
+                        # reason — String(32): "review:" + 24 символа причины
+                        reason=f"review:{verdict.why[:24]}",
+                    ))
+                    logger.info(
+                        "Channel %d: @%s junked by reviewer (%s)",
+                        channel.id, c.twitter_username, verdict.why,
+                    )
+                    continue
+                kept.append(c)
+            await session.commit()
+
+            kept.sort(
+                key=lambda c: ranking[c.id].interest if c.id in ranking else 0,
+                reverse=True,
+            )
+            if kept:
+                logger.info(
+                    "Channel %d: ranked order: %s",
+                    channel.id,
+                    [(c.twitter_username,
+                      ranking[c.id].interest if c.id in ranking else "-")
+                     for c in kept],
+                )
+            candidates = kept
+            if not candidates:
+                logger.info(
+                    "Channel %d: reviewer junked all candidates this cycle",
+                    channel.id,
+                )
+                return
+
         niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
 
         # Идём по топу, пробуем каждый
@@ -238,12 +296,10 @@ async def _process_hybrid_channel(
                 )
                 continue
 
-            # Создаём fake target
-            fake_target = type("FakeTarget", (), {
-                "id": channel.id,
-                "chat_id": channel.target_chat_id,
-                "is_active": True,
-            })()
+            fake_target = ChannelTarget(
+                channel_id=channel.id,
+                chat_id=channel.target_chat_id,
+            )
 
             # Подбираем релевантную картинку через LLM keywords + Unsplash API
             photo_url = None

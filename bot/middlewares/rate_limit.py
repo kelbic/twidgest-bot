@@ -23,6 +23,9 @@ COMMAND_LIMITS: dict[str, tuple[int, int]] = {
     "/createchannel": (300, 3),
     "/regenerate": (300, 3),
 
+    # Скаут: LLM + платные fetch'и twitterapi.io — 2 раза в час
+    "/scout": (3600, 2),
+
     # Twitter API звонки: 10 в минуту
     "/addsource": (60, 10),
     "/sources": (60, 20),

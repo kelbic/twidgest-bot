@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from core.llm_client import OpenRouterClient
 from config import Config
 from core.image_picker import fetch_image_url_for_keywords
-from core.safe_sender import send_to_target
+from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import compute_topic_signature, is_duplicate_topic
 from core.twitter_cache import TwitterCache
 from core.twitter_client import Tweet
@@ -150,11 +150,10 @@ async def _process_channel(
         niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
         vk_niche_prompt = build_vk_prompt(channel.niche, channel.filter_preset)
 
-    fake_target = type("FakeTarget", (), {
-        "id": channel.id,
-        "chat_id": channel.target_chat_id,
-        "is_active": True,
-    })()
+    fake_target = ChannelTarget(
+        channel_id=channel.id,
+        chat_id=channel.target_chat_id,
+    )
 
     for src in channel.channel_sources:
         if not src.is_active:
