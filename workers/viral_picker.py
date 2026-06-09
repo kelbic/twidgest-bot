@@ -142,7 +142,13 @@ async def _process_hybrid_channel(
     user = channel.user
     async with session_maker()() as session:
         active = await is_tier_active(user)
-    effective_tier = user.tier if active else "free"
+    if not active:
+        logger.info(
+            "viral_picker: skipping channel %d — user %d tier expired",
+            channel.id, user.tg_user_id,
+        )
+        return
+    effective_tier = user.tier
     limits = get_limits(effective_tier)
 
     async with session_maker()() as session:

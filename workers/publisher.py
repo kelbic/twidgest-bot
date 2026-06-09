@@ -73,7 +73,13 @@ async def _process_channel(
     user = channel.user
     async with session_maker()() as session:
         active = await is_tier_active(user)
-    effective_tier = user.tier if active else "free"
+    if not active:
+        logger.info(
+            "publisher: skipping channel %d — user %d tier expired",
+            channel.id, user.tg_user_id,
+        )
+        return
+    effective_tier = user.tier
     limits = get_limits(effective_tier)
     # Для дайджестов всегда используем Pro-модель (Sonnet) — редкий вызов,
     # качество важнее экономии. Single-режим остается на default LLM.
