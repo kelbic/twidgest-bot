@@ -8,7 +8,7 @@ import asyncio
 import logging
 import time
 
-from core import metrics
+from core import budget, metrics
 
 from aiogram import Bot
 from sqlalchemy import select
@@ -280,6 +280,12 @@ async def _process_channel(
                     )
                     return
 
+                if not budget.spend(channel.id):
+                    logger.warning(
+                        "Channel %d: eval budget exhausted, skipping rewrites "
+                        "till tomorrow", channel.id,
+                    )
+                    break
                 rewritten = await _rewrite_with_niche(llm, tw, niche_prompt)
                 if not rewritten:
                     await mark_processed(session, user.tg_user_id, tw.id, tw.username)
@@ -423,6 +429,8 @@ async def _process_vk_source(
             if today >= limits.max_posts_per_day:
                 return
 
+            if not budget.spend(channel.id):
+                break
             rewritten = await _rewrite_vk_post(llm, post, niche_prompt)
             if not rewritten:
                 await mark_processed(session, user.tg_user_id, post_uid, identifier)

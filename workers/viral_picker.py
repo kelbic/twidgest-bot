@@ -17,7 +17,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import metrics
+from core import budget, metrics
 from core.candidate_ranker import rank_candidates
 from core.llm_client import OpenRouterClient
 from config import Config
@@ -199,7 +199,26 @@ async def _process_hybrid_channel(
         # там промпт мягче — та же семантика, что у обычного SKIP).
         # Остальные сортируются по interest. При сбое LLM — fail-open:
         # остаёмся на исходном порядке по engagement, канал НЕ молчит.
-        ranking = await rank_candidates(llm, channel, candidates)
+        # === ДНЕВНОЙ LLM-БЮДЖЕТ: деградация, не тишина ===
+        # Исчерпан -> без ранкера, только явный топ по виральности (2x порог),
+        # одна попытка rewrite. Канал продолжает публиковать лучшее.
+        if budget.exhausted(channel.id):
+            hi_bar = max(channel.min_likes * 2, channel.min_likes + 1)
+            candidates = [c for c in candidates if c.likes >= hi_bar][:1]
+            if not candidates:
+                logger.info(
+                    "Channel %d: eval budget exhausted, no 2x-viral candidates "
+                    "this cycle", channel.id,
+                )
+                return
+            logger.warning(
+                "Channel %d: eval budget exhausted — degraded mode "
+                "(top-viral only, no ranker)", channel.id,
+            )
+            ranking = None
+        else:
+            budget.spend(channel.id)  # вызов ранкера
+            ranking = await rank_candidates(llm, channel, candidates)
         if ranking is None:
             logger.warning(
                 "Channel %d: ranker unavailable, fail-open to engagement order",
@@ -278,6 +297,12 @@ async def _process_hybrid_channel(
                 )
                 continue
 
+            if not budget.spend(channel.id):
+                logger.warning(
+                    "Channel %d: eval budget hit mid-cycle, stopping attempts",
+                    channel.id,
+                )
+                break
             rewritten, skip_reason = await _rewrite(llm, top, niche_prompt)
             if not rewritten:
                 # SKIP — помечаем skipped_at, чтобы не пробовать снова в след. циклах.

@@ -33,7 +33,7 @@ from core.twitter_client import TwitterClient
 from db.models import Channel, ChannelSource, ScoutSuggestion
 from db.repositories.users import is_tier_active
 from db.session import session_maker
-from tiers import get_limits
+from tiers import MAX_SOURCES_PER_CHANNEL, get_limits
 from workers.source_scout import discover_sources
 
 logger = logging.getLogger(__name__)
@@ -93,13 +93,14 @@ async def _active_sources_count(session: AsyncSession, owner_id: int) -> int:
 async def _source_limit_reached(
     session: AsyncSession, channel: Channel
 ) -> tuple[bool, int, int]:
-    """(достигнут ли лимит, текущее число, лимит) для владельца канала."""
-    user = channel.user
-    active = await is_tier_active(user)
-    effective_tier = user.tier if active else "free"
-    limits = get_limits(effective_tier)
-    count = await _active_sources_count(session, channel.user_id)
-    return count >= limits.max_sources, count, limits.max_sources
+    """(достигнут ли лимит, текущее число, лимит) — кап НА КАНАЛ.
+
+    Этап B прайсинг-рефакторинга: лимит источников стал пер-канальным
+    (MAX_SOURCES_PER_CHANNEL), пер-юзерный max_sources тарифа уходит
+    вместе со старой тарифной сеткой в этапе C.
+    """
+    count = sum(1 for s in channel.channel_sources if s.is_active)
+    return count >= MAX_SOURCES_PER_CHANNEL, count, MAX_SOURCES_PER_CHANNEL
 
 
 def _render_card(

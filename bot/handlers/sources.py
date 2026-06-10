@@ -18,6 +18,7 @@ from config import Config as _VKConfig
 _vk_cfg = _VKConfig()
 _vk_client = _VKClient(_vk_cfg.vk_access_token) if _vk_cfg.vk_access_token else None
 from config import Config
+from tiers import MAX_SOURCES_PER_CHANNEL
 from core.twitter_client import TwitterClient
 from db.models import Channel, ChannelSource, DigestQueueItem
 from core.llm_client import OpenRouterClient
@@ -128,6 +129,21 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
         await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    # Кап на канал: честный пользователь не упрётся (AI-онбординг даёт 6-9
+    # проверенных), кап — против абьюза по API-кредитам. Админ — без лимита.
+    active_count = sum(1 for s in channel.channel_sources if s.is_active)
+    if (active_count >= MAX_SOURCES_PER_CHANNEL
+            and message.from_user.id != _cfg.admin_user_id):
+        await message.answer(
+            f"⚠️ В канале уже {active_count} источников — это максимум "
+            f"({MAX_SOURCES_PER_CHANNEL} на канал).\n\n"
+            f"Качество канала делают не количество источников, а их отдача — "
+            f"посмотри /scout {channel_id}: он покажет, кто реально приносит "
+            f"посты. Слабых можно убрать: /removesource.\n"
+            f"Если 15 реально мало под твою задачу — напиши, обсудим: @kelbic"
+        )
         return
 
     if is_vk:
@@ -797,6 +813,18 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
             parts.append("⏰ Первый дайджест: при ближайшем publisher cycle")
 
     # === Команды ===
+    from core import budget as _budget
+    from tiers import DAILY_EVAL_BUDGET as _DEB
+    _rem = _budget.remaining(channel_id)
+    parts.append("")
+    if _rem <= 0:
+        parts.append(
+            f"⚡ <b>AI-бюджет:</b> 0/{_DEB} — исчерпан на сегодня, "
+            f"публикуются только топ-твиты (сброс в 00:00 UTC)"
+        )
+    else:
+        parts.append(f"⚡ <b>AI-бюджет на сегодня:</b> {_rem}/{_DEB} оценок")
+
     parts.append("")
     parts.append("🛠 <b>Команды:</b>")
     parts.append(f"  <code>/sources {channel_id}</code> — управление источниками")
