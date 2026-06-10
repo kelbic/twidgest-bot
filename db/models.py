@@ -28,6 +28,8 @@ class User(Base):
     tg_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tier: Mapped[str] = mapped_column(String(16), default="free", nullable=False)
     tier_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Этап C (per-channel биллинг): триал выдаётся один раз — первому каналу
+    trial_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     trial_notify_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -85,6 +87,10 @@ class Channel(Base):
     images_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     filter_preset: Mapped[str] = mapped_column(String(32), default="community")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # Этап C: оплата и триал живут НА КАНАЛЕ (слот = канал, 999⭐/30д)
+    paid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    trial_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     user: Mapped["User"] = relationship(back_populates="channels")
     channel_sources: Mapped[list["ChannelSource"]] = relationship(
