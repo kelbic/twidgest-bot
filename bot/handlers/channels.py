@@ -1,6 +1,8 @@
 """Команды для Channel: /channels, /createchannel, /templates."""
 from __future__ import annotations
 
+import logging
+
 from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
@@ -21,6 +23,8 @@ from templates import TEMPLATES, get_template, list_templates
 from tiers import get_limits
 
 # Shared clients for AI-assisted channel creation
+logger = logging.getLogger(__name__)
+
 _cfg = Config()
 # Default LLM (Haiku) для всех задач
 _llm = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_default)
