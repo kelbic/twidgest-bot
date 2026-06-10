@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from aiogram import Bot
 from sqlalchemy import select
@@ -64,12 +65,37 @@ async def run_collect_cycle(
     vk_client: VKClient | None = None,
 ) -> None:
     logger.info("=== Collector cycle started ===")
+    cycle_t0 = time.monotonic()
 
     async with session_maker()() as session:
         channels = await _get_active_channels(session)
 
     if not channels:
         logger.info("No active channels with bound target.")
+        return
+
+    # ТИР-ФИЛЬТР ДО FETCH'А: источники каналов с истёкшим тарифом не фетчим
+    # вообще. Раньше fetch шёл по всем активным каналам, а is_tier_active
+    # проверялся уже в _process_channel — деньги на API тратились на твиты,
+    # которые гарантированно выбрасывались. Проверка мемоизируется по юзеру:
+    # у одного юзера может быть несколько каналов.
+    tier_ok: dict[int, bool] = {}
+    allowed: list[Channel] = []
+    for ch in channels:
+        uid = ch.user_id
+        if uid not in tier_ok:
+            tier_ok[uid] = await is_tier_active(ch.user)
+        if tier_ok[uid]:
+            allowed.append(ch)
+        else:
+            logger.info(
+                "collector: skipping channel %d — user %d tier expired (pre-fetch)",
+                ch.id, uid,
+            )
+    skipped_expired = len(channels) - len(allowed)
+    channels = allowed
+    if not channels:
+        logger.info("All channels skipped (tier expired). Nothing to fetch.")
         return
 
     unique_twitter: set[str] = set()
@@ -87,13 +113,22 @@ async def run_collect_cycle(
         len(channels), len(unique_twitter), len(unique_vk),
     )
 
+    # Параллельный fetch: семафор 5 — последовательный обход на сотнях
+    # источников растягивал цикл к интервалу запуска (30 мин). Кэш внутри
+    # TwitterCache переживёт параллельные вызовы: худший случай для
+    # дублирующихся ключей — лишний fetch, не гонка данных.
     fetch_results: dict[str, list[Tweet]] = {}
-    for username in unique_twitter:
-        try:
-            fetch_results[username] = await cache.get_tweets(username, limit=20)
-        except Exception:
-            logger.exception("Cache fetch failed for @%s", username)
-            fetch_results[username] = []
+    fetch_sem = asyncio.Semaphore(5)
+
+    async def _fetch_one(username: str) -> None:
+        async with fetch_sem:
+            try:
+                fetch_results[username] = await cache.get_tweets(username, limit=20)
+            except Exception:
+                logger.exception("Cache fetch failed for @%s", username)
+                fetch_results[username] = []
+
+    await asyncio.gather(*(_fetch_one(u) for u in unique_twitter))
 
     vk_results: dict[str, list[VKPost]] = {}
     if vk_client and unique_vk:
@@ -116,7 +151,12 @@ async def run_collect_cycle(
         except Exception:
             logger.exception("Failed to process channel %d", channel.id)
 
-    logger.info("=== Collector cycle done ===")
+    logger.info(
+        "=== Collector cycle done in %.1fs (channels=%d, twitter_sources=%d, "
+        "skipped_expired=%d) ===",
+        time.monotonic() - cycle_t0, len(channels), len(unique_twitter),
+        skipped_expired,
+    )
 
 
 async def _process_channel(
