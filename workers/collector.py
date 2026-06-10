@@ -236,6 +236,15 @@ async def _process_channel(
                     await mark_processed(session, user.tg_user_id, tw.id, tw.username)
                     continue
 
+                # Ретвиты: rewrite их всё равно SKIP'ает (и правильно — это
+                # чужой контент), но до фикса они доезжали до viral_picker,
+                # выигрывали ранжирование по лайкам оригинала и жгли попытку
+                # цикла. API признак не отдаёт — фильтруем по каноничному
+                # префиксу "RT @".
+                if tw.text.lstrip().startswith("RT @"):
+                    await mark_processed(session, user.tg_user_id, tw.id, tw.username)
+                    continue
+
                 if await is_processed(session, user.tg_user_id, tw.id):
                     continue
 
