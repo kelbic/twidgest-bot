@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -422,10 +423,21 @@ class OpenRouterClient:
         self, system_prompt: str, user_prompt: str, max_tokens: int,
         temperature: float = 0.3,
     ) -> str | None:
+        # Текущая дата в каждый системный промпт. Без неё модель сверяет
+        # содержимое твитов со своим внутренним «сейчас» (= cutoff обучения)
+        # и может счесть свежие события/релизы «вымыслом из будущего».
+        # Тот же класс бага пойман в essayist на анонсе Fable 5.
+        dated_system = (
+            f"Сегодня {datetime.utcnow():%Y-%m-%d} (UTC). Твои знания старее "
+            f"этой даты. События, продукты и даты в твитах вплоть до "
+            f"сегодняшней — нормальные свежие новости, а не ошибка или "
+            f"вымысел; не «исправляй» их и не выражай сомнение в тексте.\n\n"
+            + system_prompt
+        )
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": dated_system},
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,

@@ -10,6 +10,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -117,6 +118,17 @@ async def main() -> None:
     )
 
     me = await bot.get_me()
+    await bot.set_my_commands([
+        BotCommand(command="channels", description="Мои каналы и их статус"),
+        BotCommand(command="templates", description="15 готовых тем для канала"),
+        BotCommand(command="createchannel", description="Создать канал (шаблон или AI)"),
+        BotCommand(command="sources", description="Источники канала"),
+        BotCommand(command="scout", description="AI-скаут: подобрать источники"),
+        BotCommand(command="status", description="Детальная статистика канала"),
+        BotCommand(command="me", description="Тариф и лимиты"),
+        BotCommand(command="upgrade", description="Тарифы и покупка"),
+        BotCommand(command="help", description="Все команды и FAQ"),
+    ])
     logging.info("Bot @%s started. Polling...", me.username)
 
     # Первый цикл сбора сразу — чтобы не ждать 30 минут после рестарта
