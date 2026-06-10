@@ -48,7 +48,7 @@ HELP = """\
 
 <b>🎯 Каналы (основное):</b>
 /channels — список твоих каналов
-/templates — 15 готовых шаблонов
+/templates — готовые шаблоны проверенных тем
 /createchannel template &lt;id&gt; — из шаблона
 /createchannel ai &lt;тема&gt; — AI подберёт источники
 /deletechannel &lt;id&gt; — удалить канал
