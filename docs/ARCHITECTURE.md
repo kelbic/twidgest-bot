@@ -26,6 +26,8 @@ twidgest-bot/
 │   │   ├── sources.py            # /sources, /addsource, /removesource,
 │   │   │                         #   /regenerate, /setimages, /setfilter,
 │   │   │                         #   /filters, /status
+│   │   ├── scout.py              # /scout: AI source discovery — HIL card,
+│   │   │                         #   prevalidation on author's real tweets
 │   │   ├── forward.py            # Auto-bind channel on forwarded message
 │   │   ├── admin.py              # /admin (grant/revoke/user/stats/
 │   │   │                         #   broadcast/channels/notify/setfilter)
@@ -42,7 +44,10 @@ twidgest-bot/
 │   │                             #   build_digest, suggest_image_keywords
 │   ├── image_picker.py           # Unsplash API + 6h in-memory cache
 │   ├── topic_dedup.py            # Jaccard similarity for content dedup
-│   └── safe_sender.py            # send_to_target with auto-deactivate
+│   ├── candidate_ranker.py       # LLM reviewer-ranker for viral_picker:
+│   │                             #   interest 1-10 + junk verdicts, fail-open
+│   └── safe_sender.py            # send_to_target(ChannelTarget): channel
+│                                 #   auto-deactivate + owner notification
 │
 ├── db/
 │   ├── models.py                 # SQLAlchemy models
@@ -65,10 +70,13 @@ twidgest-bot/
 │   │                             #   for hybrid channels (single-style post,
 │   │                             #   window: last 24h, marks posted_at_single)
 │   ├── channel_health.py         # Every 1h: notify owner if channel silent 24h+
+│   │                             #   (silent alert carries a "run scout" button)
+│   ├── source_scout.py           # On-demand (no schedule): discover and
+│   │                             #   prevalidate new X sources for a channel
 │   ├── expiry_check.py           # Every 24h: downgrade expired Pro tiers,
 │   │                             #   notify Free users T-1 day before trial expiry
-│   └── queue_cleanup.py          # Every 24h: delete digest_queue rows
-│                                 #   older than 7 days (TTL, disk hygiene)
+│   └── queue_cleanup.py          # Every 24h: TTL cleanup — digest_queue 7d,
+│                                 #   rejection_log 30d, scout_suggestions 30d
 │
 ├── tests/
 │   ├── test_topic_dedup.py       # 17 unit tests on Jaccard similarity
@@ -111,6 +119,9 @@ twidgest-bot/
   - Фильтрует `posted_at_single IS NULL AND skipped_at IS NULL`
   - После публикации помечает `posted_at_single = now()` (не удаляет — для digest)
   - Использует `channel.min_likes` из БД (не хардкод)
+  - Перед rewrite кандидаты проходят ревьювер-ранкер (`core/candidate_ranker.py`):
+    junk → `skipped_at` + RejectionLog `review:*`, остальные сортируются по interest.
+    При сбое LLM — fail-open на порядок по engagement (канал не должен молчать)
 - Single для пуристого single режима: `workers/collector.py`, после `enqueue_for_digest`
 - ⚠️ Все три места независимо проверяют квоты, dedup, фильтры
 - ⚠️ Колонки `posted_at_single`, `skipped_at` в `digest_queue` — не удалять без понимания lifecycle
@@ -132,6 +143,13 @@ twidgest-bot/
 - Изменения в `db/models.py` (`ChannelSource` нужно обобщить)
 - Изменения в `workers/collector.py` (loop по source types)
 - ⚠️ Большая работа — спросить юзера про приоритет
+
+### "Хочу подкрутить скаута источников (/scout)"
+
+- Логика подбора и превалидации: `workers/source_scout.py` (константы порогов вверху файла)
+- Команда, колбэки, кулдаун, лимиты тарифа: `bot/handlers/scout.py`
+- Кнопка в silent-алерте: `workers/channel_health.py` (callback `scoutrun:<channel_id>`)
+- Хранилище предложений: таблица `scout_suggestions` (TTL 30 дней в `queue_cleanup`)
 
 ### "Хочу починить баг — посмотреть логи"
 
@@ -215,5 +233,9 @@ sqlite3 twidgest.db "SELECT id, title, filter_preset FROM channels;"
 6. **Хардкод констант поверх БД-настроек — опасно.** Реальный кейс: `MIN_LIKES_FOR_SINGLE = 100` в `viral_picker.py` переопределял `channel.min_likes` пользователя. Пользователь настраивал в боте порог 5, бот игнорировал и использовал 100. Каналы молчали часами. Правило: при добавлении константы-порога — проверить, нет ли уже соответствующего поля в БД-модели канала/пользователя.
 
 7. **Mark vs delete для пост-публикационных меток.** Когда нужно "запомнить что что-то произошло" — добавить колонку с timestamp (`posted_at_single`, `skipped_at`, `notified_at`), а не удалять запись. Сохраняет историю + гибкость для будущих сценариев (digest как "обзор лучшего за период" использует записи, помеченные `posted_at_single`).
+
+8a. **Кросс-табличные id не взаимозаменяемы.** Реальный кейс: воркеры передавали в `safe_sender` анонимный FakeTarget с `id=channel.id`, а деактивация била в таблицу `targets` по этому id — при потере доступа к каналу гасился ЧУЖОЙ target с совпавшим автоинкрементом, сам канал оставался активным и фейлился каждый цикл. Правило: объект-носитель id обязан явно говорить, к какой таблице id относится (`ChannelTarget.channel_id`); утиная типизация для БД-сущностей запрещена.
+
+8b. **Платные вызовы — после всех дешёвых фильтров, не до.** Реальный кейс: collector фетчил источники всех активных каналов, а tier-проверка шла позже в `_process_channel` — API-кредиты тратились на твиты expired-юзеров, которые гарантированно выбрасывались (−40% запросов после фикса). Правило: дешёвые проверки (тариф, лимиты, is_active) — строго до дорогих операций (API fetch, LLM).
 
 8. **Свежесть твитов важнее их виральности.** Без фильтра по `queued_at` старые виральные твиты (накопленные за недели) вытесняют свежие новости в SELECT-запросах с `ORDER BY engagement DESC`. Канал начинает публиковать "новости" 2-недельной давности, подписчики отписываются. Любой SELECT из `digest_queue` для публикации должен иметь `WHERE queued_at > now - N hours`.

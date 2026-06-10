@@ -18,7 +18,9 @@ A user opens the bot, picks a topic (from 15 ready templates or describes their 
 1. Fetches posts from curated X (Twitter) accounts via [twitterapi.io](https://twitterapi.io) and VK communities via VK API
 2. Filters by engagement thresholds (likes, retweets) — configurable per channel via `/setthreshold`
 3. Runs each candidate through an LLM with niche-specific prompts and a Russian safety filter (no drugs, no dosages, no legally risky content)
-4. Publishes either individual posts or periodic digests into the user's Telegram channel
+4. Ranks top candidates with a cheap LLM reviewer (interest score + junk verdicts) before posting — the most substantive tweet wins, not just the most liked one; on any LLM failure it fails open to plain engagement order
+5. Publishes either individual posts or periodic digests into the user's Telegram channel
+6. When a channel goes quiet, an AI source scout suggests new X authors — pre-validated against the channel's own thresholds on their real recent tweets, and applied only on the owner's approval (human-in-the-loop)
 
 All multi-tenant: one bot process serves many users, each with their own sources, channels, schedules, and subscription tier.
 
@@ -31,7 +33,7 @@ All multi-tenant: one bot process serves many users, each with their own sources
 - **LLM:** [OpenRouter](https://openrouter.ai/) — Llama 3.3 70B (default) and Claude Sonnet 4 (Pro tier)
 - **Sources:** [twitterapi.io](https://twitterapi.io/) + VK API, both with in-memory TTL cache
 - **Payments:** Telegram Stars (XTR), subscription model with auto-renewal
-- **Deployment:** systemd service on a single VPS
+- **Deployment:** systemd service on a single VPS; SQLite in WAL mode (multi-process safe), nightly `.backup` snapshots with 14-day rotation via systemd timer
 
 ## Architecture
 
@@ -63,6 +65,7 @@ flowchart TB
             H5["billing (Stars)"]
             H6["forward (auto-bind)"]
             H7["sources / targets"]
+            H8["scout (AI source discovery)"]
         end
 
         subgraph Workers["Workers"]
