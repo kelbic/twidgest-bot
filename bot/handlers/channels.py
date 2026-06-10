@@ -7,7 +7,9 @@ from aiogram.types import Message
 
 from config import Config
 from core.llm_client import OpenRouterClient
+from core.twitter_cache import TwitterCache
 from core.twitter_client import TwitterClient
+from workers.source_scout import prevalidate_candidates
 from db.repositories.channels import (
     create_channel,
     delete_channel,
@@ -26,6 +28,7 @@ _llm = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_default)
 # Используется реже, не критично по бюджету
 _llm_smart = OpenRouterClient(_cfg.openrouter_api_key, _cfg.openrouter_model_pro)
 _twitter = TwitterClient(_cfg.twitter_api_key)
+_scout_cache = TwitterCache(_twitter, ttl_seconds=1800)
 
 router = Router(name="channels")
 
@@ -534,8 +537,41 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
             for c in top_candidates[:12]
         ]
 
-    # === Шаг 4: создаём канал ===
-    sources_list = [s["username"] for s in selected]
+    # === Шаг 4: превалидация по реальным твитам (общий код с /scout) ===
+    # Отбор выше шёл по followers и bio — сюда проскакивают медиа-аккаунты
+    # без текста и авторы, пишущие раз в месяц. Проверяем каждого по его
+    # последним твитам. Пороги engagement = 0: канал ещё не создан,
+    # гейты — доля текста, активность (< 21 дня тишины), частота;
+    # сортировка — по ожидаемой отдаче (постов/нед).
+    await status_msg.edit_text(
+        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
+        f"Шаг 4/4: проверяю {len(selected)} кандидатов по их реальным твитам..."
+    )
+    pairs = [
+        ((s["username"] or "").lstrip("@").strip().lower(), s.get("reason", ""))
+        for s in selected
+    ]
+    pairs = [(u, r) for u, r in pairs if u]
+    try:
+        validated = await prevalidate_candidates(
+            pairs, min_likes=0, min_retweets=0, cache=_scout_cache
+        )
+        sources_list = [c.username for c in validated]
+    except Exception:
+        logger.exception("createchannel ai: prevalidation failed, fail-open")
+        sources_list = []
+
+    # Fail-open: создание не должно дать пустой канал. Если после проверки
+    # осталось мало — добираем непроверенными в исходном LLM-порядке.
+    MIN_CREATION_SOURCES = 6
+    if len(sources_list) < MIN_CREATION_SOURCES:
+        for u, _r in pairs:
+            if u not in sources_list:
+                sources_list.append(u)
+            if len(sources_list) >= MIN_CREATION_SOURCES:
+                break
+
+    # === Шаг 5: создаём канал ===
     title = topic_description[:80]
 
     async with session_maker()() as session:
