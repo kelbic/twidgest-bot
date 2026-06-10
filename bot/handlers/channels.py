@@ -425,7 +425,9 @@ async def cmd_deletechannel(message: Message, command: CommandObject) -> None:
         await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
 
 
-async def _create_with_ai(message: Message, topic_description: str) -> None:
+async def _create_with_ai(
+    message: Message, topic_description: str, user_id: int | None = None
+) -> None:
     """AI-генерация через Twitter Search (не через угадывание имён).
 
     Pipeline:
@@ -435,7 +437,10 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
     4. LLM выбирает самых релевантных из кандидатов
     5. Создаём канал с реальными аккаунтами
     """
-    if message.from_user is None:
+    uid = user_id if user_id is not None else (
+        message.from_user.id if message.from_user else None
+    )
+    if uid is None:
         return
     if len(topic_description) < 10:
         await message.answer(
@@ -584,7 +589,7 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
     async with session_maker()() as session:
         channel = await create_channel(
             session,
-            user_id=message.from_user.id,
+            user_id=uid,
             title=title,
             niche="general",
             template_id=None,

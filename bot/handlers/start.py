@@ -1,9 +1,14 @@
 """Команды /start, /help, /me."""
 from __future__ import annotations
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from db.repositories.users import get_or_create_user, is_tier_active
 from db.session import session_maker
@@ -13,36 +18,29 @@ router = Router(name="start")
 
 
 WELCOME = """\
-👋 Привет! Я <b>TwidgestBot</b> — автоматизирую новостные каналы в Telegram.
+👋 Я <b>TwidgestBot</b> — превращаю X/Twitter в живой новостной Telegram-канал на автопилоте: нахожу авторов по теме, проверяю их по реальным твитам, перевожу и публикую лучшее.
 
-<i>Используя бота, вы принимаете <a href="https://kelbic.github.io/twidgest-bot/legal/terms.html">условия использования</a> и <a href="https://kelbic.github.io/twidgest-bot/legal/privacy.html">политику конфиденциальности</a>.</i>
+<b>Просто напиши тему канала одним сообщением</b> — например: <i>«новости электромобилей»</i> или <i>«биохакинг и longevity»</i>.
 
-<b>Что я умею:</b>
-- Слежу за твиттер-аккаунтами и постлю их контент тебе в канал
-- Перевожу твиты на русский через ИИ
-- Фильтрую по engagement (лайки, ретвиты)
-- Собираю дайджесты — отдельными постами или сводкой раз в N часов
+<i>Используя бота, вы принимаете <a href="https://kelbic.github.io/twidgest-bot/legal/terms.html">условия</a> и <a href="https://kelbic.github.io/twidgest-bot/legal/privacy.html">политику конфиденциальности</a>.</i>
+"""
 
-🚀 <b>Быстрый старт за 3 шага:</b>
+WELCOME_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🚀 Создать канал по теме", callback_data="qs:ai")],
+    [InlineKeyboardButton(text="📋 Готовые шаблоны", callback_data="qs:templates")],
+    [InlineKeyboardButton(text="❓ Как это работает", callback_data="qs:how")],
+])
 
-<b>1.</b> Создай свой канал в боте:
-  • /templates — 15 готовых тем (AI, крипта, longevity, спорт...)
-  • /createchannel template longevity — взять шаблон
-  • /createchannel ai крикет, IPL — AI подберёт источники по описанию
+HOW_IT_WORKS = """\
+<b>Как это работает</b>
 
-<b>2.</b> Привяжи Telegram-канал:
-  • Создай канал в Telegram (или используй существующий)
-  • Добавь @TwidgestBot админом с правом «Публикация сообщений»
-  • Перешли мне любое сообщение из канала
+1️⃣ Ты пишешь тему — AI ищет реальных авторов в X, проверяет каждого по его последним твитам (доля текста, активность, тематичность) и создаёт канал-заготовку.
 
-<b>3.</b> Готово! Бот сам определит канал и привяжет к нему источники.
-Через 30 минут в канале появится первый пост.
+2️⃣ Ты создаёшь Telegram-канал, добавляешь меня админом с правом «Публикация сообщений» и пересылаешь мне любое сообщение из него — привязка автоматическая.
 
-🏆 <b>Тарифы:</b>
-- Free (пробный, 30 дней) — 10 источников, 3 канала, 50 постов/день
-- Pro (2999⭐/мес) — всё то же + Claude LLM, digest каждые 3ч
+3️⃣ Дальше всё само: каждые 30 минут собираю свежие твиты, AI-редактор отбирает самое содержательное (а не просто залайканное), переводит и публикует. Дайджесты — по расписанию.
 
-Команды: /help
+Команды и FAQ: /help
 """
 
 HELP = """\
@@ -104,7 +102,40 @@ async def cmd_start(message: Message) -> None:
             tg_user_id=message.from_user.id,
             tg_username=message.from_user.username,
         )
-    await message.answer(WELCOME, disable_web_page_preview=True)
+    await message.answer(
+        WELCOME, reply_markup=WELCOME_KB, disable_web_page_preview=True
+    )
+
+
+@router.callback_query(F.data == "qs:ai")
+async def cb_quickstart_ai(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            "Напиши тему канала одним сообщением — я найду и проверю "
+            "авторов в X и создам канал.\n\n"
+            "Примеры: <i>«новости электромобилей»</i>, "
+            "<i>«крикет, премьер-лига Индии»</i>, "
+            "<i>«космос и астрономия»</i>"
+        )
+
+
+@router.callback_query(F.data == "qs:templates")
+async def cb_quickstart_templates(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message:
+        # cmd_templates использует только message.answer — безопасно
+        from bot.handlers.channels import cmd_templates
+        await cmd_templates(callback.message)
+
+
+@router.callback_query(F.data == "qs:how")
+async def cb_quickstart_how(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            HOW_IT_WORKS, disable_web_page_preview=True
+        )
 
 
 @router.message(Command("help"))
