@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
+
+from core import metrics
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -449,6 +451,9 @@ class OpenRouterClient:
             try:
                 result = await self._single_request(payload)
                 if result is not None:
+                    metrics.inc("llm_calls")
+                    metrics.inc("llm_chars_in", len(dated_system) + len(user_prompt))
+                    metrics.inc("llm_chars_out", len(result))
                     if attempt > 1:
                         logger.info(
                             "OpenRouter succeeded on attempt %d/%d",

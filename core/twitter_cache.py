@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from core import metrics
 from core.twitter_client import Tweet, TwitterClient
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class TwitterCache:
         entry = self._cache.get(username)
         effective = _effective_ttl(entry.stale_count, self.ttl) if entry else self.ttl
         if entry and (now - entry.fetched_at) < effective:
+            metrics.inc("tw_cache_hits")
             logger.debug(
                 "Cache hit for @%s (age=%ds, ttl=%ds, stale=%d)",
                 username, int(now - entry.fetched_at), effective, entry.stale_count,

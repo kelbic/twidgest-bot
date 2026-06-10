@@ -17,6 +17,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core import metrics
 from core.candidate_ranker import rank_candidates
 from core.llm_client import OpenRouterClient
 from config import Config
@@ -135,6 +136,7 @@ async def run_viral_picker_cycle(
             logger.exception("viral_picker failed for channel %d", channel.id)
 
     logger.info("=== Viral picker cycle done ===")
+    logger.info("cost-totals: %s", metrics.totals_line())
 
 
 async def _process_hybrid_channel(

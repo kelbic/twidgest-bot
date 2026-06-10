@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+
+from core import metrics
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -187,6 +189,7 @@ class TwitterClient:
         return None
 
     async def get_user_tweets(self, username: str, limit: int = 20) -> list[Tweet]:
+        metrics.inc("tw_api_calls")
         params = {"userName": username}
         url = f"{BASE_URL}/twitter/user/last_tweets"
 

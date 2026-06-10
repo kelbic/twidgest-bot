@@ -8,6 +8,8 @@ import asyncio
 import logging
 import time
 
+from core import metrics
+
 from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -157,6 +159,7 @@ async def run_collect_cycle(
         time.monotonic() - cycle_t0, len(channels), len(unique_twitter),
         skipped_expired,
     )
+    logger.info("cost-totals: %s", metrics.totals_line())
 
 
 async def _process_channel(
