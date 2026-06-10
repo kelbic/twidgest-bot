@@ -1,0 +1,6 @@
+[Unit]
+Description=Nightly SQLite backup (twidgest + essayist)
+
+[Service]
+Type=oneshot
+ExecStart=/root/twidgest-bot/deploy/backup_db.sh
