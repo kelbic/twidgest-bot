@@ -31,9 +31,9 @@ from core.llm_client import OpenRouterClient
 from core.twitter_cache import TwitterCache
 from core.twitter_client import TwitterClient
 from db.models import Channel, ChannelSource, ScoutSuggestion
-from db.repositories.users import is_tier_active
+from core.plan import channel_active
 from db.session import session_maker
-from tiers import MAX_SOURCES_PER_CHANNEL, get_limits
+from tiers import MAX_SOURCES_PER_CHANNEL
 from workers.source_scout import discover_sources
 
 logger = logging.getLogger(__name__)
@@ -163,6 +163,12 @@ async def _run_scout_flow(status_msg: Message, uid: int, channel_id: int) -> Non
         if channel is None:
             await status_msg.edit_text(
                 f"⚠️ Канал {channel_id} не найден или не твой."
+            )
+            return
+        if not channel_active(channel):
+            await status_msg.edit_text(
+                "⚠️ Канал не активен (триал или оплата истекли) — скаут "
+                "работает только для активных каналов. Продлить: /upgrade"
             )
             return
 

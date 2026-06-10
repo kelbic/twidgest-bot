@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import budget, metrics
+from core.plan import channel_active
 from core.candidate_ranker import rank_candidates
 from core.llm_client import OpenRouterClient
 from config import Config
@@ -143,12 +144,10 @@ async def _process_hybrid_channel(
     channel: Channel, bot: Bot, llm: OpenRouterClient
 ) -> None:
     user = channel.user
-    async with session_maker()() as session:
-        active = await is_tier_active(user)
-    if not active:
+    if not channel_active(channel):
         logger.info(
-            "viral_picker: skipping channel %d — user %d tier expired",
-            channel.id, user.tg_user_id,
+            "viral_picker: skipping channel %d — inactive (no paid/trial)",
+            channel.id,
         )
         return
     effective_tier = user.tier

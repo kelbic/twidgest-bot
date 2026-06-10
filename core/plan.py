@@ -50,3 +50,12 @@ def extension_base(channel, now: datetime | None = None) -> datetime:
     if channel.trial_until:
         cands.append(channel.trial_until)
     return max(cands)
+
+
+# Дневной лимит постов на КАНАЛ (по статусу). Старая модель считала на юзера
+# из тарифа — в слот-модели квота принадлежит каналу.
+POSTS_PER_DAY = {"admin": 500, "paid": 50, "trial": 20, "inactive": 0}
+
+
+def posts_cap(channel) -> int:
+    return POSTS_PER_DAY[channel_status(channel)]

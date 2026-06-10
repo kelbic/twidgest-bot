@@ -9,6 +9,7 @@ import logging
 import time
 
 from core import budget, metrics
+from core.plan import channel_active, posts_cap
 
 from aiogram import Bot
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from core.vk_client import VKClient, VKPost
 from db.models import Channel, User
 from db.repositories.tweets import (
     enqueue_for_digest,
+    posts_today_channel,
     is_processed,
     log_post,
     mark_processed,
@@ -81,18 +83,14 @@ async def run_collect_cycle(
     # проверялся уже в _process_channel — деньги на API тратились на твиты,
     # которые гарантированно выбрасывались. Проверка мемоизируется по юзеру:
     # у одного юзера может быть несколько каналов.
-    tier_ok: dict[int, bool] = {}
     allowed: list[Channel] = []
     for ch in channels:
-        uid = ch.user_id
-        if uid not in tier_ok:
-            tier_ok[uid] = await is_tier_active(ch.user)
-        if tier_ok[uid]:
+        if channel_active(ch):
             allowed.append(ch)
         else:
             logger.info(
-                "collector: skipping channel %d — user %d tier expired (pre-fetch)",
-                ch.id, uid,
+                "collector: skipping channel %d — inactive "
+                "(no paid/trial, pre-fetch)", ch.id,
             )
     skipped_expired = len(channels) - len(allowed)
     channels = allowed
@@ -174,12 +172,10 @@ async def _process_channel(
         return
 
     user = channel.user
-    async with session_maker()() as session:
-        active = await is_tier_active(user)
-    if not active:
+    if not channel_active(channel):
         logger.info(
-            "collector: skipping channel %d — user %d tier expired",
-            channel.id, user.tg_user_id,
+            "collector: skipping channel %d — inactive (no paid/trial)",
+            channel.id,
         )
         return
     effective_tier = user.tier
@@ -281,11 +277,12 @@ async def _process_channel(
                     )
                     continue
 
-                today = await posts_today(session, user.tg_user_id)
-                if today >= limits.max_posts_per_day:
+                today = await posts_today_channel(session, channel.id)
+                cap = posts_cap(channel)
+                if today >= cap:
                     logger.info(
-                        "User %s hit daily quota (%d/%d). Stopping.",
-                        user.tg_user_id, today, limits.max_posts_per_day,
+                        "Channel %d hit daily quota (%d/%d). Stopping.",
+                        channel.id, today, cap,
                     )
                     return
 
@@ -434,8 +431,8 @@ async def _process_vk_source(
                 await mark_processed(session, user.tg_user_id, post_uid, identifier)
                 continue
 
-            today = await posts_today(session, user.tg_user_id)
-            if today >= limits.max_posts_per_day:
+            today = await posts_today_channel(session, channel.id)
+            if today >= posts_cap(channel):
                 return
 
             if not budget.spend(channel.id):

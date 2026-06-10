@@ -138,3 +138,14 @@ async def log_post(
     )
     session.add(item)
     await session.commit()
+
+
+async def posts_today_channel(session: AsyncSession, channel_id: int) -> int:
+    """Сколько постов канал опубликовал за последние 24 часа (слот-модель)."""
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    result = await session.execute(
+        select(func.count(PostLog.id)).where(
+            and_(PostLog.target_id == channel_id, PostLog.posted_at > cutoff)
+        )
+    )
+    return int(result.scalar_one() or 0)

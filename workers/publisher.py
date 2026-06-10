@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.llm_client import DigestTweet, OpenRouterClient
+from core.plan import channel_active
 from core.safe_sender import ChannelTarget, send_to_target
 from db.models import Channel, User
 from db.repositories.tweets import (
@@ -71,12 +72,10 @@ async def _process_channel(
     llm_pro: OpenRouterClient,
 ) -> None:
     user = channel.user
-    async with session_maker()() as session:
-        active = await is_tier_active(user)
-    if not active:
+    if not channel_active(channel):
         logger.info(
-            "publisher: skipping channel %d — user %d tier expired",
-            channel.id, user.tg_user_id,
+            "publisher: skipping channel %d — inactive (no paid/trial)",
+            channel.id,
         )
         return
     effective_tier = user.tier
