@@ -1,0 +1,6 @@
+[Unit]
+Description=Monthly template sources audit (scout prevalidation)
+
+[Service]
+Type=oneshot
+ExecStart=/root/twidgest-bot/deploy/audit_templates_cron.sh
