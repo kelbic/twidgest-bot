@@ -11,7 +11,7 @@ from config import Config
 from core.llm_client import OpenRouterClient
 from core.twitter_cache import TwitterCache
 from core.twitter_client import TwitterClient
-from workers.source_scout import prevalidate_candidates
+from workers.source_scout import apply_topic_relevance, prevalidate_candidates
 from db.repositories.channels import (
     create_channel,
     delete_channel,
@@ -559,6 +559,9 @@ async def _create_with_ai(message: Message, topic_description: str) -> None:
     try:
         validated = await prevalidate_candidates(
             pairs, min_likes=0, min_retweets=0, cache=_scout_cache
+        )
+        validated = await apply_topic_relevance(
+            _llm, topic_description, validated
         )
         sources_list = [c.username for c in validated]
     except Exception:

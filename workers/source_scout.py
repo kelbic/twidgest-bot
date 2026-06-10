@@ -4,24 +4,25 @@
 и превалидация стоят денег (twitterapi.io + LLM). Никогда не меняет
 источники сам: результат — карточка владельцу с кнопками (HIL).
 
-Превалидация В КОДЕ, без LLM (prevalidate_candidates, переиспользуется
-в /createchannel ai): по последним твитам кандидата считаем:
-- долю текстовых твитов (>= 40 знаков, не reply) — отсев медиа-аккаунтов;
-- сколько твитов прошло бы пороги конкретного канала (passing);
-- частоту постинга (твитов/нед) по parsed_created_at;
-- ОТДАЧУ: ожидаемое число публикуемых постов в неделю =
-  passing/total * твитов/нед. Это главная метрика сортировки: автор
-  с фильтром 20/20, но двумя твитами в месяц, даст каналу ~0.5 поста/нед
-  и честно уезжает вниз списка.
-Гейты: < MIN_TWEETS твитов (мёртвый/выдуманный), text_share < порога,
-passing < порога, последний твит старше MAX_SILENCE_DAYS (неактивен).
+Три уровня проверки кандидата:
+1. ФОРМА, в коде (prevalidate_candidates, переиспользуется в
+   /createchannel ai): доля текстовых твитов, активность (< 21 дня тишины),
+   частота постинга, пороги engagement канала.
+2. ТЕМА, один батч-вызов LLM (apply_topic_relevance): какая доля реальных
+   твитов кандидата относится к теме канала. Закрывает кейс «Илон Маск»:
+   форма идеальна, 99 тв/нед, но про тему канала — малая доля.
+   topic_share < MIN_TOPIC_SHARE → кандидат выпадает; иначе отдача
+   умножается на долю — «даст ~N постов/нед» означает посты ПО ТЕМЕ.
+   Fail-open: LLM упала / битый JSON → кандидаты идут без поправки.
+3. ЧЕЛОВЕК (HIL): карточка с метриками, добавление только кнопкой.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from core.llm_client import OpenRouterClient
@@ -40,14 +41,29 @@ MIN_TEXT_SHARE = 0.35
 MIN_PASSING = 2
 # Последний твит старше этого — автор неактивен, в новостной канал не годится
 MAX_SILENCE_DAYS = 21
+# Минимальная доля твитов ПО ТЕМЕ канала (LLM-оценка); ниже — кандидат выпадает
+MIN_TOPIC_SHARE = 0.4
 # Частота ниже этой помечается «⚠️ редко» в карточке (но не отсеивается)
 RARE_TWEETS_PER_WEEK = 3.0
 # Сколько лучших кандидатов показываем владельцу
 TOP_N = 5
 # Параллельность fetch'ей при превалидации
 PROBE_CONCURRENCY = 3
+# Сколько текстов кандидата отправляем LLM на оценку темы (и длина каждого)
+TOPIC_SAMPLE_TEXTS = 8
+TOPIC_SAMPLE_CHARS = 200
 
 _USERNAME_RE = re.compile(r"[a-z0-9_]{1,32}")
+
+_TOPIC_SYSTEM = """Ты оцениваешь авторов X (Twitter) как источники для тематического Telegram-канала.
+Тебе дают тему канала и для каждого автора — выдержки из его реальных последних твитов.
+Для КАЖДОГО автора оцени, какая ДОЛЯ его твитов относится к теме канала (0-100).
+Считай относящимися и смежные твиты (новости индустрии, события вокруг темы).
+Личное, политика, другие индустрии, мемы без связи с темой — не относятся.
+
+Верни СТРОГО JSON-объект без markdown и комментариев:
+{"username1": 85, "username2": 20}
+Ровно по одному ключу на каждого автора из входа."""
 
 
 @dataclass
@@ -61,14 +77,20 @@ class CandidateStats:
     median_likes: int        # медиана лайков по текстовым твитам
     passing: int             # сколько твитов прошло бы фильтры канала
     tweets_per_week: float   # частота постинга автора
-    est_posts_per_week: float  # ожидаемая отдача каналу: passing/total * частота
+    est_posts_per_week: float  # отдача каналу (после topic_share — по теме)
+    topic_share: float | None = None   # доля твитов по теме (LLM), 0..1
+    sample_texts: list[str] = field(default_factory=list)  # для LLM, в БД не идёт
 
     def stats_line(self) -> str:
         """Человекочитаемая строка метрик — хранится в ScoutSuggestion.stats."""
         rare = " ⚠️ пишет редко" if self.tweets_per_week < RARE_TWEETS_PER_WEEK else ""
+        topic = (
+            f" · по теме {int(self.topic_share * 100)}%"
+            if self.topic_share is not None else ""
+        )
         return (
             f"текстовых {int(self.text_share * 100)}% · ❤ медиана {self.median_likes} · "
-            f"фильтр {self.passing}/{self.total} · ≈{self.tweets_per_week:.0f} тв/нед — "
+            f"фильтр {self.passing}/{self.total}{topic} · ≈{self.tweets_per_week:.0f} тв/нед — "
             f"даст ~{self.est_posts_per_week:.1f} поста/нед{rare}"
         )
 
@@ -86,15 +108,11 @@ async def prevalidate_candidates(
     min_retweets: int,
     cache: TwitterCache,
 ) -> list[CandidateStats]:
-    """Проверяет кандидатов по их реальным последним твитам.
+    """Проверка ФОРМЫ по реальным последним твитам (без LLM).
 
     candidates — [(username_lowercase, reason)], уже без дублей и без
     уже подключённых. Возвращает прошедших гейты, отсортированных по
-    est_posts_per_week (отдача каналу), затем по медиане лайков.
-
-    min_likes/min_retweets = 0 допустимо (например, при создании канала,
-    когда пороги ещё не настроены) — тогда passing считает просто
-    текстовые твиты, а отдача вырождается в text_share * частота.
+    est_posts_per_week, с sample_texts для последующей проверки темы.
     """
     sem = asyncio.Semaphore(PROBE_CONCURRENCY)
     results: list[CandidateStats] = []
@@ -157,6 +175,11 @@ async def prevalidate_candidates(
         median_likes = likes_sorted[len(likes_sorted) // 2]
         est_posts_per_week = passing / len(tweets) * tweets_per_week
 
+        samples = [
+            t.text.strip()[:TOPIC_SAMPLE_CHARS]
+            for t in texty[:TOPIC_SAMPLE_TEXTS]
+        ]
+
         results.append(CandidateStats(
             username=username,
             reason=reason[:200],
@@ -166,6 +189,7 @@ async def prevalidate_candidates(
             passing=passing,
             tweets_per_week=tweets_per_week,
             est_posts_per_week=est_posts_per_week,
+            sample_texts=samples,
         ))
 
     await asyncio.gather(*(_probe(u, r) for u, r in candidates))
@@ -173,16 +197,83 @@ async def prevalidate_candidates(
     return results
 
 
+def _strip_fences(raw: str) -> str:
+    clean = raw.strip()
+    if clean.startswith("```"):
+        parts = clean.split("```")
+        if len(parts) >= 2:
+            clean = parts[1]
+        clean = clean.removeprefix("json").strip()
+    return clean
+
+
+async def apply_topic_relevance(
+    llm: OpenRouterClient,
+    topic: str,
+    candidates: list[CandidateStats],
+) -> list[CandidateStats]:
+    """Проверка ТЕМЫ: один батч-вызов LLM на всех кандидатов.
+
+    topic_share < MIN_TOPIC_SHARE → кандидат выпадает (кейс «Маск»:
+    форма идеальна, тема — малая доля). Иначе отдача умножается на долю.
+    Fail-open: сбой LLM / битый JSON / автор не в ответе → кандидат идёт
+    без поправки (topic_share=None), карточка покажет метрики без «по теме».
+    """
+    if not candidates:
+        return candidates
+
+    blocks = []
+    for c in candidates:
+        joined = "\n".join(f"- {t}" for t in c.sample_texts) or "- (нет текстов)"
+        blocks.append(f"@{c.username}:\n{joined}")
+    user_prompt = (
+        f"Тема канала: {topic}\n\n"
+        f"Авторы и их твиты:\n\n" + "\n\n".join(blocks)
+    )
+
+    raw = await llm._call_with_retry(
+        _TOPIC_SYSTEM, user_prompt, max_tokens=300, temperature=0.1
+    )
+    if not raw:
+        logger.warning("scout: topic relevance LLM failed, fail-open")
+        return candidates
+
+    try:
+        data = json.loads(_strip_fences(raw))
+        assert isinstance(data, dict)
+    except Exception:
+        logger.warning("scout: topic relevance non-JSON: %s", raw[:200])
+        return candidates
+
+    shares = {str(k).lstrip("@").lower(): v for k, v in data.items()}
+    kept: list[CandidateStats] = []
+    for c in candidates:
+        v = shares.get(c.username)
+        try:
+            share = max(0.0, min(100.0, float(v))) / 100.0
+        except (TypeError, ValueError):
+            kept.append(c)  # fail-open per-candidate
+            continue
+        if share < MIN_TOPIC_SHARE:
+            logger.info(
+                "scout: @%s dropped — only %.0f%% of tweets on topic",
+                c.username, share * 100,
+            )
+            continue
+        c.topic_share = share
+        c.est_posts_per_week = c.est_posts_per_week * share
+        kept.append(c)
+
+    kept.sort(key=lambda c: (c.est_posts_per_week, c.median_likes), reverse=True)
+    return kept
+
+
 async def discover_sources(
     channel: Channel,
     llm: OpenRouterClient,
     cache: TwitterCache,
 ) -> list[CandidateStats]:
-    """Полный цикл скаута для одного канала: LLM-подбор + превалидация.
-
-    channel должен быть загружен с channel_sources (selectinload).
-    Возвращает до TOP_N кандидатов, отсортированных по отдаче каналу.
-    """
+    """Полный цикл скаута: LLM-подбор → форма (код) → тема (LLM) → топ-N."""
     existing = {
         s.twitter_username.lower().lstrip("@")
         for s in channel.channel_sources
@@ -210,7 +301,6 @@ async def discover_sources(
     if not candidates:
         return []
 
-    # Пороги канала: для unfiltered снимаем виральность (как в collector)
     eff_min_likes = (
         0 if channel.filter_preset == "unfiltered" else channel.min_likes
     )
@@ -221,9 +311,10 @@ async def discover_sources(
     results = await prevalidate_candidates(
         candidates, eff_min_likes, eff_min_retweets, cache
     )
+    results = await apply_topic_relevance(llm, topic, results)
     top = results[:TOP_N]
     logger.info(
-        "scout: channel %d, %d candidates survived prevalidation: %s",
+        "scout: channel %d, %d candidates survived all gates: %s",
         channel.id, len(top),
         [(c.username, f"{c.est_posts_per_week:.1f}/wk") for c in top],
     )
