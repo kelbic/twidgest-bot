@@ -90,7 +90,7 @@ async def run_weekly_report(bot: Bot) -> None:
                 f"~{MINUTES_PER_POST} мин на пост), которые бот взял на себя."
             )
             try:
-                await bot.send_message(owner, text)
+                await bot.send_message(owner, text, parse_mode="HTML")
                 sent += 1
             except Exception as exc:
                 logger.warning("weekly: failed to send to %d: %s", owner, exc)
