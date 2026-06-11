@@ -15,6 +15,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 from bot.handlers import admin, billing, channels, forward, freetext, legal, scout, sources, start, targets
 from bot.middlewares.admin_check import AdminOnlyMiddleware
@@ -27,6 +28,7 @@ from core.twitter_client import TwitterClient
 from db.session import init_db, init_engine
 from workers.collector import run_collect_cycle
 from workers.expiry_check import run_expiry_check
+from workers.weekly_report import run_weekly_report
 from workers.publisher import run_publish_cycle
 from workers.channel_health import run_channel_health_cycle
 from workers.viral_picker import run_viral_picker_cycle
@@ -99,6 +101,11 @@ async def main() -> None:
     scheduler.add_job(
         run_expiry_check,
         trigger=IntervalTrigger(hours=24),
+        kwargs={"bot": bot},
+    )
+    scheduler.add_job(
+        run_weekly_report,
+        trigger=CronTrigger(day_of_week="mon", hour=9, minute=0),
         kwargs={"bot": bot},
     )
     scheduler.add_job(

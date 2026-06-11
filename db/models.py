@@ -216,6 +216,9 @@ class DigestQueueItem(Base):
     media_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     queued_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     skipped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Скор ревьювера-ранкера (1-10), пишется при ранжировании — сырьё для
+    # недельного отчёта владельцу. NULL = ранкер этот твит не оценивал.
+    interest_score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     posted_at_single: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     tweet_created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 

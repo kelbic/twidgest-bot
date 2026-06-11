@@ -232,6 +232,7 @@ async def _process_hybrid_channel(
                     # Ранкер не вынес вердикт по этому id — не наказываем твит
                     kept.append(c)
                     continue
+                c.interest_score = verdict.interest  # сырьё недельного отчёта
                 if verdict.junk:
                     c.skipped_at = datetime.utcnow()
                     session.add(RejectionLog(
