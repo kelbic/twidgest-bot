@@ -8,11 +8,9 @@ from aiogram.types import Message
 from db.repositories.users import (
     add_target,
     get_or_create_user,
-    is_tier_active,
     remove_target,
 )
 from db.session import session_maker
-from tiers import get_limits
 
 router = Router(name="targets")
 
@@ -81,20 +79,10 @@ async def cmd_target(message: Message, command: CommandObject) -> None:
         user = await get_or_create_user(
             session, message.from_user.id, message.from_user.username
         )
-        active = await is_tier_active(user)
-        effective_tier = user.tier if active else "free"
-        limits = get_limits(effective_tier)
-
-        if len(user.targets) >= limits.max_targets:
+        from core.plan import MAX_CHANNELS_PER_USER
+        if len(user.targets) >= MAX_CHANNELS_PER_USER:
             await message.answer(
-                f"❌ Достигнут лимит каналов для тарифа <b>{limits.name}</b>: "
-                f"{limits.max_targets}."
-            )
-            return
-
-        if mode == "digest" and not limits.can_use_digest_mode:
-            await message.answer(
-                f"❌ Режим <code>digest</code> доступен от тарифа Starter. /upgrade"
+                f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт."
             )
             return
 

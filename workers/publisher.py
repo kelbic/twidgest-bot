@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.llm_client import DigestTweet, OpenRouterClient
-from core.plan import channel_active
+from core.plan import channel_active, digest_floor, posts_cap
 from core.safe_sender import ChannelTarget, send_to_target
 from db.models import Channel, User
 from db.repositories.tweets import (
@@ -23,12 +23,10 @@ from db.repositories.tweets import (
     last_digest_time,
     log_digest,
     log_post,
-    posts_today,
+    posts_today_channel,
 )
-from db.repositories.users import is_tier_active
 from db.session import session_maker
 from prompts import build_digest_prompt, build_unfiltered_digest_prompt
-from tiers import get_limits
 
 logger = logging.getLogger(__name__)
 
@@ -78,13 +76,11 @@ async def _process_channel(
             channel.id,
         )
         return
-    effective_tier = user.tier
-    limits = get_limits(effective_tier)
     # Для дайджестов всегда используем Pro-модель (Sonnet) — редкий вызов,
     # качество важнее экономии. Single-режим остается на default LLM.
     llm = llm_pro
 
-    interval_h = max(channel.digest_interval_hours, limits.digest_min_interval_hours)
+    interval_h = max(channel.digest_interval_hours, digest_floor(channel))
 
     async with session_maker()() as session:
         logger.info(
@@ -108,9 +104,9 @@ async def _process_channel(
                 channel.id,
             )
 
-        today = await posts_today(session, user.tg_user_id)
-        if today >= limits.max_posts_per_day:
-            logger.info("User %s hit daily quota for digest.", user.tg_user_id)
+        today = await posts_today_channel(session, channel.id)
+        if today >= posts_cap(channel):
+            logger.info("Channel %d hit daily quota for digest.", channel.id)
             return
 
         # Очередь твитов этого юзера

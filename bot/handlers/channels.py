@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from config import Config
 from core.llm_client import OpenRouterClient
-from core.plan import PRICE_STARS, channel_status
+from core.plan import MAX_CHANNELS_PER_USER, PRICE_STARS, channel_status
 from core.twitter_cache import TwitterCache
 from core.twitter_client import TwitterClient
 from workers.source_scout import apply_topic_relevance, prevalidate_candidates
@@ -18,10 +18,9 @@ from db.repositories.channels import (
     delete_channel,
     get_user_channels,
 )
-from db.repositories.users import get_or_create_user, is_tier_active
+from db.repositories.users import get_or_create_user
 from db.session import session_maker
 from templates import TEMPLATES, get_template, list_templates
-from tiers import get_limits
 
 # Shared clients for AI-assisted channel creation
 logger = logging.getLogger(__name__)
@@ -92,14 +91,11 @@ async def cmd_createchannel_shortcut(message: Message) -> None:
         user = await get_or_create_user(
             session, message.from_user.id, message.from_user.username
         )
-        active = await is_tier_active(user)
-        effective_tier = user.tier if active else "free"
-        limits = get_limits(effective_tier)
         existing = await get_user_channels(session, user.tg_user_id)
-        if len(existing) >= limits.max_targets:
+        if len(existing) >= MAX_CHANNELS_PER_USER and user.tg_user_id != _cfg.admin_user_id:
             await message.answer(
-                f"❌ Достигнут лимит каналов для тарифа <b>{limits.name}</b>: "
-                f"{limits.max_targets}.\n/upgrade для увеличения."
+                f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт. "
+                f"Если нужно больше — напиши @kelbic."
             )
             return
 
@@ -123,16 +119,13 @@ async def callback_create_template(call) -> None:
 
     async with session_maker()() as session:
         user = await get_or_create_user(session, user_id, username)
-        active = await is_tier_active(user)
-        effective_tier = user.tier if active else "free"
-        limits = get_limits(effective_tier)
         existing = await get_user_channels(session, user.tg_user_id)
-        if len(existing) >= limits.max_targets:
+        if len(existing) >= MAX_CHANNELS_PER_USER and user.tg_user_id != _cfg.admin_user_id:
             await call.message.bot.send_message(
                 chat_id=chat_id_to_reply,
                 text=(
-                    f"❌ Достигнут лимит каналов для тарифа <b>{limits.name}</b>: "
-                    f"{limits.max_targets}.\n/upgrade для увеличения."
+                    f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт. "
+                    f"Если нужно больше — напиши @kelbic."
                 ),
             )
             return
@@ -337,15 +330,11 @@ async def cmd_createchannel(message: Message, command: CommandObject) -> None:
         user = await get_or_create_user(
             session, message.from_user.id, message.from_user.username
         )
-        active = await is_tier_active(user)
-        effective_tier = user.tier if active else "free"
-        limits = get_limits(effective_tier)
-
         existing_channels = await get_user_channels(session, user.tg_user_id)
-        if len(existing_channels) >= limits.max_targets:
+        if len(existing_channels) >= MAX_CHANNELS_PER_USER and user.tg_user_id != _cfg.admin_user_id:
             await message.answer(
-                f"❌ Достигнут лимит каналов для тарифа <b>{limits.name}</b>: "
-                f"{limits.max_targets}.\n/upgrade для увеличения."
+                f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт. "
+                f"Если нужно больше — напиши @kelbic."
             )
             return
 

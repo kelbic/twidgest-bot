@@ -59,3 +59,18 @@ POSTS_PER_DAY = {"admin": 500, "paid": 50, "trial": 20, "inactive": 0}
 
 def posts_cap(channel) -> int:
     return POSTS_PER_DAY[channel_status(channel)]
+
+
+# Анти-абьюз: каналов на аккаунт (создание бесплатно, активация платная)
+MAX_CHANNELS_PER_USER = 10
+
+# Floor интервала дайджестов по статусу (часов)
+_DIGEST_FLOOR = {"admin": 1, "paid": 2, "trial": 6, "inactive": 24}
+
+# Строки для /me
+MAX_SOURCES_NOTE = "15"
+DAILY_EVAL_BUDGET_NOTE = "150"
+
+
+def digest_floor(channel) -> int:
+    return _DIGEST_FLOOR[channel_status(channel)]

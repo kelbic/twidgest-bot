@@ -33,10 +33,8 @@ from db.repositories.tweets import (
     mark_processed,
     posts_today,
 )
-from db.repositories.users import is_tier_active
 from db.session import session_maker
 from prompts import build_single_prompt, build_vk_prompt, build_unfiltered_prompt
-from tiers import get_limits
 
 logger = logging.getLogger(__name__)
 
@@ -178,9 +176,7 @@ async def _process_channel(
             channel.id,
         )
         return
-    effective_tier = user.tier
-    limits = get_limits(effective_tier)
-    llm = llm_pro if limits.use_pro_llm else llm_default
+    llm = llm_default
 
     if channel.filter_preset == 'unfiltered':
         niche_prompt = build_unfiltered_prompt(channel.niche)

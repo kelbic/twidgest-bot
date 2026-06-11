@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import budget, metrics
-from core.plan import channel_active
+from core.plan import channel_active, posts_cap
 from core.candidate_ranker import rank_candidates
 from core.llm_client import OpenRouterClient
 from config import Config
@@ -26,11 +26,13 @@ from core.image_picker import fetch_image_url_for_keywords
 from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import compute_topic_signature, is_duplicate_topic
 from db.models import Channel, DigestQueueItem, PostLog, RejectionLog, User
-from db.repositories.tweets import clear_digest_items, log_post, posts_today
-from db.repositories.users import is_tier_active
+from db.repositories.tweets import (
+    clear_digest_items,
+    log_post,
+    posts_today_channel,
+)
 from db.session import session_maker
 from prompts import build_single_prompt
-from tiers import get_limits
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +152,6 @@ async def _process_hybrid_channel(
             channel.id,
         )
         return
-    effective_tier = user.tier
-    limits = get_limits(effective_tier)
 
     async with session_maker()() as session:
         logger.info(
@@ -175,12 +175,13 @@ async def _process_hybrid_channel(
             )
             return
 
-        # Daily quota
-        today = await posts_today(session, user.tg_user_id)
-        if today >= limits.max_posts_per_day:
+        # Daily quota — на канал (слот-модель)
+        today = await posts_today_channel(session, channel.id)
+        cap = posts_cap(channel)
+        if today >= cap:
             logger.info(
-                "Channel %d: user hit daily quota %d/%d",
-                channel.id, today, limits.max_posts_per_day,
+                "Channel %d hit daily quota %d/%d",
+                channel.id, today, cap,
             )
             return
 

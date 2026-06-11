@@ -10,9 +10,8 @@ from aiogram.types import (
     Message,
 )
 
-from db.repositories.users import get_or_create_user, is_tier_active
+from db.repositories.users import get_or_create_user
 from db.session import session_maker
-from tiers import get_limits
 
 router = Router(name="start")
 
@@ -153,24 +152,25 @@ async def cmd_me(message: Message) -> None:
             tg_user_id=message.from_user.id,
             tg_username=message.from_user.username,
         )
-        active = await is_tier_active(user)
-        effective_tier = user.tier if active else "free"
-        limits = get_limits(effective_tier)
-
-        sources_count = sum(len(c.channel_sources) for c in user.channels) if hasattr(user, 'channels') else 0
-        channels_count = len(user.channels) if hasattr(user, 'channels') else 0
+        from core.plan import (
+            DAILY_EVAL_BUDGET_NOTE, MAX_SOURCES_NOTE, PRICE_STARS,
+            SLOT_DAYS, channel_status,
+        )
+        channels = list(user.channels) if hasattr(user, "channels") else []
+        st_emoji = {"admin": "🛡", "paid": "🟢", "trial": "🎁", "inactive": "🔴"}
+        ch_lines = [
+            f"  {st_emoji[channel_status(c)]} <b>{c.title[:40]}</b> (id={c.id})"
+            for c in channels
+        ] or ["  — пока нет, напиши тему одним сообщением"]
 
         text = (
             f"👤 <b>Ваш профиль</b>\n\n"
-            f"Тариф: <b>{limits.name}</b>"
-            f"{' (истёк, действует Free)' if not active else ''}\n"
-            f"Каналов: <b>{channels_count}/{limits.max_targets}</b>\n"
-            f"Источников всего: <b>{sources_count}</b>\n"
-            f"Постов/день: до <b>{limits.max_posts_per_day}</b>\n\n"
-            f"Digest-режим: {'✅' if limits.can_use_digest_mode else '❌ (только Starter+)'}\n"
-            f"Custom-промпт: {'✅' if limits.can_use_custom_prompt else '❌ (только Pro+)'}\n"
-            f"Pro-LLM (Claude): {'✅' if limits.use_pro_llm else '❌'}\n\n"
-            f"Хотите больше? /upgrade"
+            f"Каналы:\n" + "\n".join(ch_lines) + "\n\n"
+            f"💳 Модель простая: <b>{PRICE_STARS}⭐ за {SLOT_DAYS} дней</b> "
+            f"на канал, первый канал — триал 7 дней.\n"
+            f"Лимиты канала: {MAX_SOURCES_NOTE} источников, "
+            f"{DAILY_EVAL_BUDGET_NOTE} AI-оценок/день.\n\n"
+            f"Статусы и оплата: /upgrade · Платежи: /payments"
         )
         await message.answer(text)
 
