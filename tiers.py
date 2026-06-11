@@ -1,4 +1,10 @@
-"""Описание тарифов. Единый источник правды для всех проверок лимитов."""
+"""LEGACY: старая тарифная сетка (Tier/TIERS/get_limits).
+
+Слот-модель (этап C) живёт в core/plan.py: канал = слот, 999⭐/30 дней,
+триал 7 дней первому каналу. Единственный живой потребитель этого файла —
+bot/handlers/admin.py (/admin grant) и константы капов внизу
+(MAX_SOURCES_PER_CHANNEL, DAILY_EVAL_BUDGET). Не использовать в новом коде.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
