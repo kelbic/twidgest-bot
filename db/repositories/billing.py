@@ -55,14 +55,15 @@ async def record_payment(
     session: AsyncSession,
     user_id: int,
     amount_stars: int,
-    tier: Tier,
+    tier: "Tier | str",
     telegram_payment_charge_id: str,
 ) -> Payment | None:
-    """Записывает платеж. Возвращает None, если такой charge_id уже был (дубль)."""
+    """Записывает платеж. tier — строка ('slot:5') или legacy Tier.
+    Возвращает None, если такой charge_id уже был (дубль)."""
     payment = Payment(
         user_id=user_id,
         amount_stars=amount_stars,
-        tier=tier.value,
+        tier=tier.value if isinstance(tier, Tier) else str(tier),
         telegram_payment_charge_id=telegram_payment_charge_id,
     )
     session.add(payment)

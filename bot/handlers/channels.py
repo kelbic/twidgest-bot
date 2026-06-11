@@ -9,6 +9,7 @@ from aiogram.types import Message
 
 from config import Config
 from core.llm_client import OpenRouterClient
+from core.plan import PRICE_STARS, channel_status
 from core.twitter_cache import TwitterCache
 from core.twitter_client import TwitterClient
 from workers.source_scout import apply_topic_relevance, prevalidate_candidates
@@ -173,6 +174,7 @@ async def callback_create_template(call) -> None:
         text=(
             f"✅ <b>Канал создан!</b>\n\n"
             f"{tpl.emoji} <b>{tpl.name}</b> (id={channel.id})\n"
+            f"{_slot_status_line(channel)}"
             f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
             f"⚙️ Режим: hybrid (4 дайджеста + до 5 виральных постов в день)\n\n"
             f"<b>⚠️ Следующий шаг:</b>\n"
@@ -396,6 +398,7 @@ async def _create_from_template(message: Message, template_id: str) -> None:
     await message.answer(
         f"✅ <b>Канал создан!</b>\n\n"
         f"{tpl.emoji} <b>{tpl.name}</b> (id={channel.id})\n"
+        f"{_slot_status_line(channel)}"
         f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
         f"⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
         f"<b>⚠️ Следующий шаг:</b>\n"
@@ -404,6 +407,18 @@ async def _create_from_template(message: Message, template_id: str) -> None:
         f"3. Перешли мне любое сообщение из канала\n\n"
         f"Список твоих каналов: /channels"
     )
+
+
+def _slot_status_line(channel) -> str:
+    """Строка статуса слота для success-сообщений создания."""
+    st = channel_status(channel)
+    if st == "trial":
+        return (f"🎁 <b>Триал {channel.trial_until:%d.%m} включён</b> — "
+                f"7 дней бесплатно, дальше {PRICE_STARS}⭐/30 дней\n")
+    if st == "inactive":
+        return (f"💳 Канал создан <b>неактивным</b> — активируй за "
+                f"{PRICE_STARS}⭐ командой /upgrade\n")
+    return ""  # admin/paid — без строки
 
 
 @router.message(Command("deletechannel"))
@@ -611,6 +626,7 @@ async def _create_with_ai(
     lines = [
         f"✅ <b>Канал создан с реальными источниками из X!</b>\n",
         f"📝 <b>{title}</b> (id={channel.id})\n",
+        f"{_slot_status_line(channel)}",
         f"ℹ️ Найдено в X по запросам: {len(filtered)}, выбрано: {len(selected)}\n",
         narrow_topic_warning,
         f"📡 <b>Источники:</b>",

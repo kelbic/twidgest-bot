@@ -5,7 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import Channel, ChannelSource
+from datetime import datetime, timedelta
+
+from core.plan import TRIAL_DAYS, _ADMIN_ID
+from db.models import Channel, ChannelSource, User
 from engagement_defaults import get_engagement_defaults
 
 
@@ -30,6 +33,17 @@ async def create_channel(
         min_likes=min_likes,
         min_retweets=min_retweets,
     )
+    # Слот-модель: первый канал юзера получает триал TRIAL_DAYS дней,
+    # ровно один раз (users.trial_used). Остальные создаются неактивными —
+    # активация за PRICE_STARS через /upgrade. Админ живёт на байпасе,
+    # триал ему не нужен и не расходуется.
+    if user_id != _ADMIN_ID:
+        u_res = await session.execute(select(User).where(User.tg_user_id == user_id))
+        owner = u_res.scalar_one_or_none()
+        if owner is not None and not owner.trial_used:
+            channel.trial_until = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
+            owner.trial_used = True
+
     session.add(channel)
     await session.flush()  # получаем id
 
