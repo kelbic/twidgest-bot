@@ -140,9 +140,11 @@ async def _process_channel(
 
         # Выбираем промпт в зависимости от фильтра
         if channel.filter_preset == 'unfiltered':
-            system_prompt = build_unfiltered_digest_prompt(channel.niche)
+            system_prompt = build_unfiltered_digest_prompt(
+                channel.niche, legal_rf=channel.legal_rf_filter)
         else:
-            system_prompt = build_digest_prompt(channel.niche)
+            system_prompt = build_digest_prompt(
+                channel.niche, legal_rf=channel.legal_rf_filter)
         digest_text = await _build_digest_with_prompt(llm, digest_tweets, system_prompt)
         # LLM может вернуть пусто ИЛИ сентинел "SKIP" (не смог собрать дайджест —
         # частый случай для крипто/новостных ниш, где фильтр душит контент).

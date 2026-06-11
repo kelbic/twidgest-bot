@@ -269,7 +269,8 @@ async def _process_hybrid_channel(
                 )
                 return
 
-        niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
+        niche_prompt = build_single_prompt(channel.niche, channel.filter_preset,
+                                           legal_rf=channel.legal_rf_filter)
 
         # Идём по топу, пробуем каждый
         for idx, top in enumerate(candidates, 1):

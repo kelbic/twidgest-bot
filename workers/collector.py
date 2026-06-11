@@ -179,11 +179,13 @@ async def _process_channel(
     llm = llm_default
 
     if channel.filter_preset == 'unfiltered':
-        niche_prompt = build_unfiltered_prompt(channel.niche)
-        vk_niche_prompt = build_unfiltered_prompt(channel.niche)
+        niche_prompt = build_unfiltered_prompt(channel.niche, legal_rf=channel.legal_rf_filter)
+        vk_niche_prompt = build_unfiltered_prompt(channel.niche, legal_rf=channel.legal_rf_filter)
     else:
-        niche_prompt = build_single_prompt(channel.niche, channel.filter_preset)
-        vk_niche_prompt = build_vk_prompt(channel.niche, channel.filter_preset)
+        niche_prompt = build_single_prompt(channel.niche, channel.filter_preset,
+                                           legal_rf=channel.legal_rf_filter)
+        vk_niche_prompt = build_vk_prompt(channel.niche, channel.filter_preset,
+                                          legal_rf=channel.legal_rf_filter)
 
     fake_target = ChannelTarget(
         channel_id=channel.id,

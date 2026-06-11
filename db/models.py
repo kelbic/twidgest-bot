@@ -92,6 +92,11 @@ class Channel(Base):
     paid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     trial_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
+    # Юр-фильтр слоя A (RF-риски). Отключение — осознанный opt-out владельца,
+    # факт и время отказа фиксируются для аудита.
+    legal_rf_filter: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    legal_optout_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+
     user: Mapped["User"] = relationship(back_populates="channels")
     channel_sources: Mapped[list["ChannelSource"]] = relationship(
         back_populates="channel", cascade="all, delete-orphan"

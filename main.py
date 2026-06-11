@@ -16,7 +16,7 @@ from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from bot.handlers import admin, billing, channels, forward, freetext, scout, sources, start, targets
+from bot.handlers import admin, billing, channels, forward, freetext, legal, scout, sources, start, targets
 from bot.middlewares.admin_check import AdminOnlyMiddleware
 from bot.middlewares.rate_limit import RateLimitMiddleware
 from config import Config
@@ -63,6 +63,7 @@ async def main() -> None:
     dp.message.middleware(RateLimitMiddleware(admin_user_id=cfg.admin_user_id))
     # Admin router — только для ADMIN_USER_ID
     admin.router.message.middleware(AdminOnlyMiddleware(cfg.admin_user_id))
+    dp.include_router(legal.router)
     dp.include_router(admin.router)
     # ПОСЛЕДНИМ: catch-all «текст как тема» ловит только то,
     # что не поймал никто выше
