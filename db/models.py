@@ -275,6 +275,26 @@ class HealthNotification(Base):
     reason: Mapped[str] = mapped_column(String(64))  # 'high_rejection_rate' / 'no_sources_active' / etc
     sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+class MetricsSnapshot(Base):
+    """Снапшот кумулятивных счётчиков metrics после каждого цикла collector.
+
+    Счётчики обнуляются при рестарте процесса, поэтому /costs суммирует
+    ПОЛОЖИТЕЛЬНЫЕ дельты между соседними снапшотами (cur < prev = был рестарт,
+    тогда дельта = cur, считаем от нуля)."""
+
+    __tablename__ = "metrics_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    tw_api_calls: Mapped[int] = mapped_column(Integer, default=0)
+    tw_cache_hits: Mapped[int] = mapped_column(Integer, default=0)
+    llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    llm_tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    llm_tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class RejectionLog(Base):
     """Лог отказов LLM по каждому твиту.
 

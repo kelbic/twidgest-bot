@@ -20,6 +20,11 @@ def inc(key: str, n: int = 1) -> None:
     _totals[key] += n
 
 
+def snapshot() -> dict[str, int]:
+    """Копия счётчиков для персистентных снапшотов (/costs)."""
+    return dict(_totals)
+
+
 def totals_line() -> str:
     if not _totals:
         return "no-data"

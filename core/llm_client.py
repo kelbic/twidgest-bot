@@ -497,6 +497,9 @@ class OpenRouterClient:
                             data = json.loads(body)
                         except Exception as exc:
                             raise _RetryableError(f"bad JSON: {exc}") from exc
+                        u = data.get("usage") or {}
+                        metrics.inc("llm_tokens_in", int(u.get("prompt_tokens") or 0))
+                        metrics.inc("llm_tokens_out", int(u.get("completion_tokens") or 0))
                         return self._extract_content(data)
 
                     snippet = body[:300]

@@ -10,6 +10,7 @@ import time
 
 from core import budget, metrics
 from core.plan import channel_active, posts_cap
+from db.repositories.metrics_snapshots import save_snapshot
 
 from aiogram import Bot
 from sqlalchemy import select
@@ -156,6 +157,10 @@ async def run_collect_cycle(
         skipped_expired,
     )
     logger.info("cost-totals: %s", metrics.totals_line())
+    try:
+        await save_snapshot(metrics.snapshot())
+    except Exception as exc:  # снапшот не должен ронять цикл
+        logger.warning("metrics snapshot failed: %s", exc)
 
 
 async def _process_channel(
