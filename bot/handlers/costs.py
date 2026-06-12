@@ -20,15 +20,14 @@ from config import Config
 from core.plan import PRICE_STARS, channel_active
 from db.models import Channel
 from db.repositories.channel_costs import llm_by_channel_since
+from core.pricing import llm_usd_per_mtok, tw_usd_per_tweet
 from db.repositories.metrics_snapshots import deltas_since
 from db.session import session_maker
 
 router = Router(name="costs")
 
-# Цены (USD), июнь 2026. twitterapi.io: 15 кредитов/твит, 1 USD = 100k кредитов.
-TW_USD_PER_TWEET = 0.00015
-LLM_IN_PER_MTOK = 1.0   # Claude Haiku 4.5 (llm_default; Sonnet-дайджесты чуть занижают)
-LLM_OUT_PER_MTOK = 5.0  # Claude Haiku 4.5
+# Цены живые: LLM — с OpenRouter по сконфигурированной модели (кэш сутки),
+# twitter — env TW_USD_PER_TWEET или дефолт. См. core/pricing.py.
 
 
 @router.message(Command("costs"))
@@ -43,6 +42,10 @@ async def cmd_costs(message: Message, command: CommandObject) -> None:
 
     g = await deltas_since(since)               # глобальные дельты (snapshots)
     per_ch = await llm_by_channel_since(since)  # LLM по каналам (точно)
+    cfg = Config()
+    LLM_IN_PER_MTOK, LLM_OUT_PER_MTOK, price_src = await llm_usd_per_mtok(
+        cfg.openrouter_model_default)
+    TW_USD_PER_TWEET = tw_usd_per_tweet()
 
     async with session_maker()() as session:
         result = await session.execute(
@@ -87,6 +90,7 @@ async def cmd_costs(message: Message, command: CommandObject) -> None:
 
     lines.append(
         f"\nИтого переменные затраты: <b>${grand:.2f}</b>. "
-        f"Фикс (VPS, Anthropic для essayist, твоё время) — отдельно. "
-        f"LLM-токены и tw_tweets копятся с деплоя; первые сутки неполные.")
+        f"Фикс (VPS, Anthropic для essayist, твоё время) — отдельно.\n"
+        f"Цены LLM: {price_src} ({cfg.openrouter_model_default}, "
+        f"${LLM_IN_PER_MTOK:.2f}/${LLM_OUT_PER_MTOK:.2f} за Mtok).")
     await message.answer("\n".join(lines))
