@@ -92,6 +92,11 @@ class Channel(Base):
     paid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     trial_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
+    # Порог интереса ранкера (0 = выкл): кандидаты с interest ниже порога
+    # скипаются — лучше промолчать цикл, чем публиковать оффтоп/воду.
+    # Делает всеядные мегааккаунты (elonmusk и т.п.) пригодными источниками.
+    min_interest: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     # Юр-фильтр слоя A (RF-риски). Отключение — осознанный opt-out владельца,
     # факт и время отказа фиксируются для аудита.
     legal_rf_filter: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

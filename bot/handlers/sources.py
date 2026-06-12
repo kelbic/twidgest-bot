@@ -858,6 +858,49 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
 
 
 
+@router.message(Command("setminterest"))
+async def cmd_setminterest(message: Message, command: CommandObject) -> None:
+    """Порог интереса ранкера: ниже порога твит не публикуется.
+    Использование: /setminterest <channel_id> <0-10>; 0 = выключить.
+    """
+    if message.from_user is None:
+        return
+    parts = (command.args or "").strip().split()
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        await message.answer(
+            "Использование: <code>/setminterest &lt;channel_id&gt; &lt;0-10&gt;</code>\n\n"
+            "AI-редактор оценивает каждый твит на интересность и попадание в тему "
+            "канала (1-10). Твиты ниже порога не публикуются — канал лучше "
+            "промолчит, чем выложит оффтоп.\n\n"
+            "  <code>/setminterest 5 6</code> — публиковать только 6+/10\n"
+            "  <code>/setminterest 5 0</code> — выключить порог\n\n"
+            "<i>С порогом 6-7 можно смело добавлять всеядные мегааккаунты "
+            "(/addsource): из их ленты пройдёт только попадание в тему.</i>"
+        )
+        return
+    channel_id, floor = int(parts[0]), int(parts[1])
+    if not 0 <= floor <= 10:
+        await message.answer("Порог — целое от 0 до 10.")
+        return
+    async with session_maker()() as session:
+        result = await session.execute(
+            select(Channel).where(
+                Channel.id == channel_id,
+                Channel.user_id == message.from_user.id,
+            )
+        )
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Канал {channel_id} не найден или не твой.")
+            return
+        channel.min_interest = floor
+        await session.commit()
+    state = f"{floor}/10" if floor else "выключен"
+    await message.answer(
+        f"✅ Порог интереса для <b>«{channel.title[:40]}»</b>: <b>{state}</b>."
+    )
+
+
 @router.message(Command("setthreshold"))
 async def cmd_setthreshold(message: Message, command: CommandObject) -> None:
     """Устанавливает пороги виральности канала.

@@ -241,18 +241,21 @@ async def _process_hybrid_channel(
                     kept.append(c)
                     continue
                 c.interest_score = verdict.interest  # сырьё недельного отчёта
-                if verdict.junk:
+                floor = channel.min_interest or 0
+                if verdict.junk or (floor and verdict.interest < floor):
                     c.skipped_at = datetime.utcnow()
+                    reason = (f"review:{verdict.why[:24]}" if verdict.junk
+                              else f"review:low_interest {verdict.interest}<{floor}")
                     session.add(RejectionLog(
                         channel_id=channel.id,
                         tweet_id=c.tweet_id,
                         twitter_username=c.twitter_username,
-                        # reason — String(32): "review:" + 24 символа причины
-                        reason=f"review:{verdict.why[:24]}",
+                        # reason — String(32)
+                        reason=reason[:32],
                     ))
                     logger.info(
-                        "Channel %d: @%s junked by reviewer (%s)",
-                        channel.id, c.twitter_username, verdict.why,
+                        "Channel %d: @%s rejected by reviewer (%s)",
+                        channel.id, c.twitter_username, reason,
                     )
                     continue
                 kept.append(c)
