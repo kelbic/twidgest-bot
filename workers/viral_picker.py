@@ -319,7 +319,6 @@ async def _process_hybrid_channel(
                 # Из очереди НЕ удаляем — может пойти в digest (там промпт мягче).
                 from datetime import datetime as _dt
                 top.skipped_at = _dt.utcnow()
-                from db.models import RejectionLog
                 session.add(RejectionLog(
                     channel_id=channel.id,
                     tweet_id=top.tweet_id,
