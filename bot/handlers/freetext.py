@@ -1,8 +1,10 @@
 """Текст как тема: новичок пишет сообщение — предлагаем создать канал.
 
 Роутер подключается ПОСЛЕДНИМ: сюда падает только то, что не поймал
-ни один другой хендлер. Гейты: личка, текст не-команда, не форвард,
-у пользователя НЕТ каналов (опытным catch-all только мешал бы).
+ни один другой хендлер. Гейты: личка, текст не-команда, не форвард.
+Работает для ВСЕХ (раньше — только при нуле каналов, и тема владельца
+канала молча проваливалась: кнопка qs:ai просила «напиши тему», а текст
+игнорировался — баг верхней воронки). Отказ — одна кнопка «Не надо».
 Создание — строго после кнопки-подтверждения.
 """
 from __future__ import annotations
@@ -49,8 +51,7 @@ async def _channels_count(user_id: int) -> int:
 async def freetext_as_topic(message: Message) -> None:
     if message.from_user is None or message.text is None:
         return
-    if await _channels_count(message.from_user.id) > 0:
-        return  # опытный пользователь — не лезем в его сообщения
+    n_channels = await _channels_count(message.from_user.id)
 
     topic = message.text.strip()[:MAX_TOPIC_LEN]
     if len(topic) < 10:
@@ -67,8 +68,9 @@ async def freetext_as_topic(message: Message) -> None:
         InlineKeyboardButton(text="🚀 Создать", callback_data="ft:go"),
         InlineKeyboardButton(text="✖️ Не надо", callback_data="ft:no"),
     ]])
+    extra = " ещё один" if n_channels else ""
     await message.answer(
-        f"Создать канал по теме <b>«{topic}»</b>?\n\n"
+        f"Создать{extra} канал по теме <b>«{topic}»</b>?\n\n"
         f"Я найду авторов в X, проверю каждого по его реальным твитам "
         f"и соберу канал — займёт около минуты.",
         reply_markup=kb,

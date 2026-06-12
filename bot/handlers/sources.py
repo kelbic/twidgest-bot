@@ -573,9 +573,26 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     if message.from_user is None:
         return
     if not command.args:
-        await message.answer(
-            "Использование: <code>/status &lt;channel_id&gt;</code>"
-        )
+        # Без аргумента — список каналов юзера со статусами (раньше был тупик)
+        from core.plan import channel_status
+        from sqlalchemy import select as _select
+
+        async with session_maker()() as session:
+            result = await session.execute(
+                _select(Channel).where(Channel.user_id == message.from_user.id))
+            chans = list(result.scalars().all())
+        if not chans:
+            await message.answer(
+                "У тебя пока нет каналов — напиши тему одним сообщением, "
+                "и я создам канал с проверенными источниками.")
+            return
+        st_emoji = {"admin": "🛡", "paid": "🟢", "trial": "🎁", "inactive": "🔴"}
+        lines = ["Твои каналы:\n"]
+        for ch in chans:
+            lines.append(
+                f"  {st_emoji[channel_status(ch)]} <b>{ch.title[:40]}</b> (id={ch.id})")
+        lines.append("\nДетали: <code>/status &lt;id&gt;</code>")
+        await message.answer("\n".join(lines))
         return
 
     try:
