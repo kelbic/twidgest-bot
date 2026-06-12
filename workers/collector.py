@@ -10,6 +10,7 @@ import time
 
 from core import budget, metrics
 from core.plan import channel_active, posts_cap
+from db.repositories.channel_costs import save_channel_cost
 from db.repositories.metrics_snapshots import save_snapshot
 
 from aiogram import Bot
@@ -143,12 +144,19 @@ async def run_collect_cycle(
                 vk_results[identifier] = []
 
     for channel in channels:
+        acc = metrics.channel_begin()
         try:
             await _process_channel(
                 channel, fetch_results, vk_results, bot, llm_default, llm_pro
             )
         except Exception:
             logger.exception("Failed to process channel %d", channel.id)
+        finally:
+            metrics.channel_end()
+            try:
+                await save_channel_cost(channel.id, acc)
+            except Exception as exc:
+                logger.warning("channel cost save failed: %s", exc)
 
     logger.info(
         "=== Collector cycle done in %.1fs (channels=%d, twitter_sources=%d, "

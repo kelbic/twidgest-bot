@@ -275,6 +275,23 @@ class HealthNotification(Base):
     reason: Mapped[str] = mapped_column(String(64))  # 'high_rejection_rate' / 'no_sources_active' / etc
     sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+class ChannelCost(Base):
+    """Дельты LLM-затрат канала ЗА ОДИН проход воркера (не кумулятив —
+    рестартов не боится). Twitter-затраты глобальны (источники шарятся)
+    и раскидываются в /costs пропорционально активным источникам."""
+
+    __tablename__ = "channel_costs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(Integer, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    llm_tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    llm_tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class MetricsSnapshot(Base):
     """Снапшот кумулятивных счётчиков metrics после каждого цикла collector.
 

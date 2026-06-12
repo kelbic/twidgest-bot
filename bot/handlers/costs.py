@@ -1,4 +1,11 @@
-"""Админская экономика: /costs [days] — себестоимость по снапшотам метрик."""
+"""Админская экономика: /costs [days] — пер-канальная себестоимость.
+
+LLM — точная атрибуция (channel_costs, скоуп вокруг обработки канала).
+Twitter — глобальные дельты снапшотов в ТВИТАХ (биллинг twitterapi.io:
+$0.15/1k возвращённых твитов, минимум 15 кредитов/вызов), раскиданные
+по каналам пропорционально их активным источникам — источники шарятся,
+точнее не атрибутировать. Фикс-косты (VPS, время) сюда не входят.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -7,19 +14,21 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from config import Config
 from core.plan import PRICE_STARS, channel_active
 from db.models import Channel
+from db.repositories.channel_costs import llm_by_channel_since
 from db.repositories.metrics_snapshots import deltas_since
 from db.session import session_maker
 
 router = Router(name="costs")
 
-# Цены (USD). СВЕРЯЙ со своими тарифами: twitterapi.io и модель OpenRouter.
-TW_USD_PER_1K_CALLS = 0.15
-LLM_IN_PER_MTOK = 0.20
-LLM_OUT_PER_MTOK = 0.80
+# Цены (USD), июнь 2026. twitterapi.io: 15 кредитов/твит, 1 USD = 100k кредитов.
+TW_USD_PER_TWEET = 0.00015
+LLM_IN_PER_MTOK = 1.0   # Claude Haiku 4.5 (llm_default; Sonnet-дайджесты чуть занижают)
+LLM_OUT_PER_MTOK = 5.0  # Claude Haiku 4.5
 
 
 @router.message(Command("costs"))
@@ -30,32 +39,54 @@ async def cmd_costs(message: Message, command: CommandObject) -> None:
     arg = (command.args or "").strip()
     if arg.isdigit():
         days = max(1, min(90, int(arg)))
-    d = await deltas_since(datetime.utcnow() - timedelta(days=days))
-    if d is None:
-        await message.answer(
-            f"Мало снапшотов за {days} дн. — они пишутся после каждого цикла "
-            f"collector, подожди пару циклов.")
-        return
+    since = datetime.utcnow() - timedelta(days=days)
+
+    g = await deltas_since(since)               # глобальные дельты (snapshots)
+    per_ch = await llm_by_channel_since(since)  # LLM по каналам (точно)
 
     async with session_maker()() as session:
-        result = await session.execute(select(Channel))
-        active = sum(1 for c in result.scalars().all() if channel_active(c))
+        result = await session.execute(
+            select(Channel).options(selectinload(Channel.channel_sources)))
+        channels = list(result.scalars().all())
+    active = {c.id: c for c in channels if channel_active(c)}
+    src_counts = {
+        cid: sum(1 for s in ch.channel_sources if s.is_active)
+        for cid, ch in active.items()
+    }
+    total_src = sum(src_counts.values()) or 1
 
-    usd = (d["tw_api_calls"] / 1000 * TW_USD_PER_1K_CALLS
-           + d["llm_tokens_in"] / 1e6 * LLM_IN_PER_MTOK
-           + d["llm_tokens_out"] / 1e6 * LLM_OUT_PER_MTOK)
-    span_d = d["hours"] / 24
-    per_ch_day = usd / span_d / active if (span_d and active) else 0
-    cache_total = d["tw_api_calls"] + d["tw_cache_hits"]
-    cache_pct = d["tw_cache_hits"] / cache_total * 100 if cache_total else 0
+    tw_usd_total = 0.0
+    tw_line = "Twitter: данных пока нет (tw_tweets копится с деплоя v2)"
+    if g:
+        billed_units = max(g.get("tw_tweets", 0), g.get("tw_api_calls", 0))
+        tw_usd_total = billed_units * TW_USD_PER_TWEET
+        hit = g["tw_cache_hits"]
+        denom = g["tw_api_calls"] + hit
+        tw_line = (f"Twitter: {g.get('tw_tweets', 0)} твитов / "
+                   f"{g['tw_api_calls']} вызовов → ${tw_usd_total:.2f} "
+                   f"(кэш hit-rate {hit / denom * 100 if denom else 0:.0f}%)")
 
-    await message.answer(
-        f"💸 <b>Себестоимость Twidgest за ~{d['hours']} ч</b> (оценка)\n\n"
-        f"Twitter API: {d['tw_api_calls']} запросов "
-        f"(кэш сэкономил {d['tw_cache_hits']}, hit-rate {cache_pct:.0f}%)\n"
-        f"LLM: {d['llm_calls']} вызовов, токены "
-        f"{d['llm_tokens_in']/1000:.0f}k in / {d['llm_tokens_out']/1000:.0f}k out\n"
-        f"Итого: <b>${usd:.2f}</b> на {active} активных каналов\n\n"
-        f"≈ <b>${per_ch_day:.3f}</b>/канал/день → "
-        f"<b>${per_ch_day*30:.2f}</b>/канал/30д против {PRICE_STARS}⭐.\n"
-        f"Токены копятся с этого деплоя; первые сутки цифры неполные.")
+    span_d = (g["hours"] / 24) if g else days
+    lines = [f"💸 <b>Себестоимость Twidgest за ~{days} дн.</b>\n", tw_line, ""]
+    grand = tw_usd_total
+
+    for cid, ch in sorted(active.items()):
+        llm = per_ch.get(cid, {"llm_calls": 0, "tin": 0, "tout": 0})
+        llm_usd = (llm["tin"] / 1e6 * LLM_IN_PER_MTOK
+                   + llm["tout"] / 1e6 * LLM_OUT_PER_MTOK)
+        tw_share = tw_usd_total * src_counts.get(cid, 0) / total_src
+        ch_usd = llm_usd + tw_share
+        grand += llm_usd
+        per_day = ch_usd / span_d if span_d else 0
+        lines.append(
+            f"📣 <b>{ch.title[:36]}</b> (id={cid}, источников {src_counts.get(cid, 0)})\n"
+            f"   LLM: {llm['llm_calls']} вызовов, "
+            f"{llm['tin']/1000:.0f}k/{llm['tout']/1000:.0f}k ток. → ${llm_usd:.3f}\n"
+            f"   + доля Twitter ${tw_share:.3f} = <b>${ch_usd:.2f}</b> "
+            f"(${per_day:.3f}/день, ${per_day*30:.2f}/30д против {PRICE_STARS}⭐)")
+
+    lines.append(
+        f"\nИтого переменные затраты: <b>${grand:.2f}</b>. "
+        f"Фикс (VPS, Anthropic для essayist, твоё время) — отдельно. "
+        f"LLM-токены и tw_tweets копятся с деплоя; первые сутки неполные.")
+    await message.answer("\n".join(lines))

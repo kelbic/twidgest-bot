@@ -15,6 +15,8 @@ from sqlalchemy.orm import selectinload
 
 from core.llm_client import DigestTweet, OpenRouterClient
 from core.plan import channel_active, digest_floor, posts_cap
+from core import metrics
+from db.repositories.channel_costs import save_channel_cost
 from core.safe_sender import ChannelTarget, send_to_target
 from db.models import Channel, User
 from db.repositories.tweets import (
@@ -55,10 +57,17 @@ async def run_publish_cycle(
         channels = await _get_digest_channels(session)
 
     for channel in channels:
+        acc = metrics.channel_begin()
         try:
             await _process_channel(channel, bot, llm_default, llm_pro)
         except Exception:
             logger.exception("Failed to publish for channel %d", channel.id)
+        finally:
+            metrics.channel_end()
+            try:
+                await save_channel_cost(channel.id, acc)
+            except Exception as exc:
+                logger.warning("channel cost save failed: %s", exc)
 
     logger.info("=== Publisher cycle done ===")
 

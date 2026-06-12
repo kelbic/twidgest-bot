@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from core import budget, metrics
 from core.plan import channel_active, posts_cap
+from db.repositories.channel_costs import save_channel_cost
 from core.candidate_ranker import rank_candidates
 from core.llm_client import OpenRouterClient
 from config import Config
@@ -133,10 +134,17 @@ async def run_viral_picker_cycle(
     )
 
     for channel in channels:
+        acc = metrics.channel_begin()
         try:
             await _process_hybrid_channel(channel, bot, llm_default)
         except Exception:
             logger.exception("viral_picker failed for channel %d", channel.id)
+        finally:
+            metrics.channel_end()
+            try:
+                await save_channel_cost(channel.id, acc)
+            except Exception as exc:
+                logger.warning("channel cost save failed: %s", exc)
 
     logger.info("=== Viral picker cycle done ===")
     logger.info("cost-totals: %s", metrics.totals_line())

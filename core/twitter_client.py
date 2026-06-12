@@ -206,6 +206,9 @@ class TwitterClient:
 
         inner = data.get("data") or {}
         tweets_raw = inner.get("tweets") or []
+        # twitterapi.io биллит ЗА ВОЗВРАЩЁННЫЙ ТВИТ (15 кред. = $0.00015/шт,
+        # минимум 15 кредитов на вызов) — считаем до среза [:limit]
+        metrics.inc("tw_tweets", len(tweets_raw))
 
         if not tweets_raw:
             logger.info("No tweets returned for @%s (account may have no recent activity)", username)

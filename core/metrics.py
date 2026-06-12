@@ -11,13 +11,31 @@
 """
 from __future__ import annotations
 
+import contextvars
 from collections import defaultdict
 
 _totals: dict[str, int] = defaultdict(int)
 
+# Пер-канальный аккумулятор. Каналы обрабатываются последовательно,
+# contextvar — страховка на случай будущей конкурентности.
+_chan: contextvars.ContextVar[dict | None] = contextvars.ContextVar("chan", default=None)
+
+
+def channel_begin() -> dict:
+    acc: dict[str, int] = {}
+    _chan.set(acc)
+    return acc
+
+
+def channel_end() -> None:
+    _chan.set(None)
+
 
 def inc(key: str, n: int = 1) -> None:
     _totals[key] += n
+    acc = _chan.get()
+    if acc is not None:
+        acc[key] = acc.get(key, 0) + n
 
 
 def snapshot() -> dict[str, int]:
