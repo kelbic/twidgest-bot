@@ -577,8 +577,12 @@ async def _create_with_ai(
         logger.exception("createchannel ai: prevalidation failed, fail-open")
         sources_list = []
 
-    # Fail-open: создание не должно дать пустой канал. Если после проверки
-    # осталось мало — добираем непроверенными в исходном LLM-порядке.
+    # Все прошедшие двойную проверку (твиты + тема) остаются — потолок 15.
+    n_validated = len(sources_list)
+    MAX_CREATION_SOURCES = 15
+    sources_list = sources_list[:MAX_CREATION_SOURCES]
+    # Fail-open: пустой канал недопустим. Если проверку прошло мало —
+    # добираем непроверенными в LLM-порядке до разумного минимума.
     MIN_CREATION_SOURCES = 6
     if len(sources_list) < MIN_CREATION_SOURCES:
         for u, _r in pairs:
@@ -616,7 +620,8 @@ async def _create_with_ai(
         f"✅ <b>Канал создан с реальными источниками из X!</b>\n",
         f"📝 <b>{title}</b> (id={channel.id})\n",
         f"{_slot_status_line(channel)}",
-        f"ℹ️ Найдено в X по запросам: {len(filtered)}, выбрано: {len(selected)}\n",
+        f"ℹ️ Найдено в X: {len(filtered)}, проверено по твитам и теме: "
+        f"{n_validated}, подключено: {len(sources_list)}\n",
         narrow_topic_warning,
         f"📡 <b>Источники:</b>",
     ]

@@ -74,8 +74,8 @@ class Channel(Base):
     mode: Mapped[str] = mapped_column(String(16), default="digest")  # single | digest
 
     # Фильтры (могут переопределять глобальные UserSettings)
-    min_likes: Mapped[int] = mapped_column(Integer, default=200)
-    min_retweets: Mapped[int] = mapped_column(Integer, default=20)
+    min_likes: Mapped[int] = mapped_column(Integer, default=10)
+    min_retweets: Mapped[int] = mapped_column(Integer, default=2)
     skip_replies: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Расписание
@@ -174,8 +174,8 @@ class UserSettings(Base):
         ForeignKey("users.tg_user_id", ondelete="CASCADE"),
         primary_key=True,
     )
-    min_likes: Mapped[int] = mapped_column(Integer, default=200)
-    min_retweets: Mapped[int] = mapped_column(Integer, default=20)
+    min_likes: Mapped[int] = mapped_column(Integer, default=10)
+    min_retweets: Mapped[int] = mapped_column(Integer, default=2)
     skip_replies: Mapped[bool] = mapped_column(Boolean, default=True)
     digest_interval_hours: Mapped[int] = mapped_column(Integer, default=12)
     digest_max_tweets: Mapped[int] = mapped_column(Integer, default=7)

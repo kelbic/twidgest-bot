@@ -30,8 +30,10 @@ NICHE_ENGAGEMENT_DEFAULTS: dict[str, tuple[int, int]] = {
     # Health — smaller science community
     "longevity": (50, 5),
 
-    # Generic fallback for AI-generated / unknown niches
-    "general": (30, 3),
+    # Generic fallback for AI-generated / unknown niches. Мягкий порог: AI-каналы
+    # часто узкие/нишевые (хобби, бренды), где даже живые источники набирают
+    # 5-30 лайков. Для широких тем поток всё равно отсекает ранкер по качеству.
+    "general": (10, 2),
 }
 
 
