@@ -429,6 +429,17 @@ async def cmd_deletechannel(message: Message, command: CommandObject) -> None:
         await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
 
 
+def _sources_summary(found: int, validated: int, connected: int) -> str:
+    """Честная строка воронки источников. Если подключённых больше прошедших
+    проверку — был fail-open добор (узкая тема), и мы это прямо говорим."""
+    base = f"ℹ️ Найдено в X: {found}, прошли проверку по твитам и теме: {validated}"
+    if connected > validated:
+        return (base + f"\nПодключено {connected} "
+                f"(добрали {connected - validated} кандидатов — тема узкая, "
+                f"мало кто прошёл проверку; проверь /sources и убери лишних)\n")
+    return base + f", подключено: {connected}\n"
+
+
 async def _create_with_ai(
     message: Message, topic_description: str, user_id: int | None = None
 ) -> None:
@@ -577,6 +588,12 @@ async def _create_with_ai(
         logger.exception("createchannel ai: prevalidation failed, fail-open")
         sources_list = []
 
+    # Причины из LLM-отбора — по username, чтобы показать их у РЕАЛЬНО
+    # подключённых источников (а не у кандидатов до проверки).
+    reason_by_user = {
+        (s.get("username") or "").lstrip("@").strip().lower(): s.get("reason", "")
+        for s in selected
+    }
     # Все прошедшие двойную проверку (твиты + тема) остаются — потолок 15.
     n_validated = len(sources_list)
     MAX_CREATION_SOURCES = 15
@@ -620,17 +637,16 @@ async def _create_with_ai(
         f"✅ <b>Канал создан с реальными источниками из X!</b>\n",
         f"📝 <b>{title}</b> (id={channel.id})\n",
         f"{_slot_status_line(channel)}",
-        f"ℹ️ Найдено в X: {len(filtered)}, проверено по твитам и теме: "
-        f"{n_validated}, подключено: {len(sources_list)}\n",
+        _sources_summary(len(filtered), n_validated, len(sources_list)),
         narrow_topic_warning,
         f"📡 <b>Источники:</b>",
     ]
-    for s in selected[:15]:
-        reason = s.get("reason", "").strip()
+    for u in sources_list:
+        reason = reason_by_user.get(u.lstrip("@").strip().lower(), "").strip()
         if reason:
-            lines.append(f"  • @{s['username']} — {reason}")
+            lines.append(f"  • @{u} — {reason}")
         else:
-            lines.append(f"  • @{s['username']}")
+            lines.append(f"  • @{u}")
 
     lines.append(
         f"\n⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
