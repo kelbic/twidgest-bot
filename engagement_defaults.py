@@ -5,35 +5,29 @@ beauty/hobby niches often have 5-50 likes. Fixed min_likes=200 discards hobby co
 """
 from __future__ import annotations
 
-# (min_likes, min_retweets) per niche code
+# (min_likes, min_retweets) per niche code.
+#
+# ПРИНЦИП (июнь 2026, по живым данным): дефолт должен ПРОПУСКАТЬ поток, а не
+# душить его — качество добирает ранкер, а планку вверх пользователь двигает
+# сам через /setthreshold, если канал слишком шумный. Прежние значения
+# (tech_ai 300/30, sports 500/50) были подтверждённо завышены: рабочий AI-канал
+# живёт на 5/2 и постит ежечасно. Поэтому почти всё унифицировано в 10/2.
+# Единственное исключение — sports: аккаунты реально крупные, 10 лайков там
+# это бот-уровень, держим умеренно выше.
+_SOFT = (10, 2)
 NICHE_ENGAGEMENT_DEFAULTS: dict[str, tuple[int, int]] = {
-    # Mainstream, high-engagement
-    "tech_ai": (300, 30),
-    "crypto": (300, 30),
-    "startups": (200, 20),
-
-    # News / science
-    "science": (200, 20),
-
-    # Sports — varies but usually big accounts
-    "sports": (500, 50),
-
-    # Business / design / ideas
-    "business": (150, 15),
-    "ideas": (200, 30),
-    "design": (100, 10),
-
-    # Entertainment / gaming
-    "entertainment": (200, 20),
-    "gaming": (150, 15),
-
-    # Health — smaller science community
-    "longevity": (50, 5),
-
-    # Generic fallback for AI-generated / unknown niches. Мягкий порог: AI-каналы
-    # часто узкие/нишевые (хобби, бренды), где даже живые источники набирают
-    # 5-30 лайков. Для широких тем поток всё равно отсекает ранкер по качеству.
-    "general": (10, 2),
+    "tech_ai": _SOFT,
+    "crypto": _SOFT,
+    "startups": _SOFT,
+    "science": _SOFT,
+    "sports": (50, 5),
+    "business": _SOFT,
+    "ideas": _SOFT,
+    "design": _SOFT,
+    "entertainment": _SOFT,
+    "gaming": _SOFT,
+    "longevity": _SOFT,
+    "general": _SOFT,
 }
 
 
