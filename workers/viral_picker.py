@@ -26,7 +26,7 @@ from config import Config
 from core.image_picker import fetch_image_url_for_keywords
 from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import compute_topic_signature, is_duplicate_topic
-from db.models import Channel, DigestQueueItem, PostLog, RejectionLog, User
+from db.models import ChannelSource, Channel, DigestQueueItem, PostLog, RejectionLog, User
 from db.repositories.tweets import (
     clear_digest_items,
     log_post,
@@ -233,6 +233,14 @@ async def _process_hybrid_channel(
                 channel.id,
             )
         else:
+            # Персональные пороги источников канала: {username_lower: min_interest}.
+            # NULL-пороги не кладём — для них действует канальный дефолт.
+            sf_rows = await session.execute(
+                select(ChannelSource.twitter_username, ChannelSource.min_interest)
+                .where(ChannelSource.channel_id == channel.id,
+                       ChannelSource.min_interest != None)  # noqa: E711
+            )
+            source_floors = {(u or "").lower(): mi for u, mi in sf_rows.all()}
             kept: list[DigestQueueItem] = []
             for c in candidates:
                 verdict = ranking.get(c.id)
@@ -241,7 +249,11 @@ async def _process_hybrid_channel(
                     kept.append(c)
                     continue
                 c.interest_score = verdict.interest  # сырьё недельного отчёта
-                floor = channel.min_interest or 0
+                # Источниковый порог перекрывает канальный, если задан (для
+                # "смешанных" источников: всеядному ставим высокий порог именно
+                # ему, профильные остаются на канальном дефолте).
+                src_floor = source_floors.get((c.twitter_username or "").lower())
+                floor = src_floor if src_floor is not None else (channel.min_interest or 0)
                 if verdict.junk or (floor and verdict.interest < floor):
                     c.skipped_at = datetime.utcnow()
                     reason = (f"review:{verdict.why[:24]}" if verdict.junk

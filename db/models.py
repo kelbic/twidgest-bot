@@ -127,6 +127,10 @@ class ChannelSource(Base):
     twitter_username: Mapped[str] = mapped_column(String(64), nullable=False)
     source_type: Mapped[str] = mapped_column(String(16), default="twitter")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Персональный порог интереса источника. NULL = нет персонального, берётся
+    # канальный (channels.min_interest). Для "смешанных" источников (всеядные
+    # агрегаторы): ставим высокий порог именно им, профильные живут на канальном.
+    min_interest: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     channel: Mapped["Channel"] = relationship(back_populates="channel_sources")

@@ -90,7 +90,9 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
     for i, src in enumerate(channel.channel_sources, 1):
         active = "✅" if src.is_active else "⏸"
         prefix = "" if src.twitter_username.startswith("vk:") else "@"
-        lines.append(f"  {i}. {active} {prefix}{src.twitter_username}")
+        mi = getattr(src, "min_interest", None)
+        mi_str = f" · 🎯 порог {mi}" if mi is not None else ""
+        lines.append(f"  {i}. {active} {prefix}{src.twitter_username}{mi_str}")
 
     lines.append(
         f"\n<b>Команды:</b>\n"
@@ -862,6 +864,76 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     await message.answer(text)
 
 
+
+
+@router.message(Command("setsourceinterest"))
+async def cmd_setsourceinterest(message: Message, command: CommandObject) -> None:
+    """Персональный порог интереса для КОНКРЕТНОГО источника канала.
+    Перекрывает канальный порог для твитов этого источника.
+    /setsourceinterest <channel_id> @user <0-10>; 0 или 'off' — снять персональный.
+    """
+    if message.from_user is None:
+        return
+    parts = (command.args or "").strip().split()
+    if len(parts) != 3 or not parts[0].isdigit():
+        await message.answer(
+            "Использование: <code>/setsourceinterest &lt;channel_id&gt; @user &lt;0-10&gt;</code>\n\n"
+            "Персональный порог интереса для одного источника — перекрывает общий "
+            "порог канала именно для его твитов. Зачем: «смешанный» источник "
+            "(всеядный агрегатор, что постит обо всём) можно держать с высоким "
+            "порогом, пропуская только профильное, пока профильные авторы живут "
+            "на мягком общем пороге.\n\n"
+            "  <code>/setsourceinterest 6 @Polymarket 6</code> — от Polymarket брать только 6+\n"
+            "  <code>/setsourceinterest 6 @Polymarket off</code> — снять (вернуть к общему)\n\n"
+            "<i>Виден в /sources как «🎯 порог N» у источника.</i>"
+        )
+        return
+    channel_id = int(parts[0])
+    username = parts[1].lstrip("@").strip()
+    raw = parts[2].lower()
+    if raw in ("off", "0"):
+        new_floor = None
+    elif raw.isdigit() and 0 <= int(raw) <= 10:
+        new_floor = int(raw)
+    else:
+        await message.answer("Порог — целое 0-10, или <code>off</code> чтобы снять.")
+        return
+    async with session_maker()() as session:
+        result = await session.execute(
+            select(Channel).where(
+                Channel.id == channel_id,
+                Channel.user_id == message.from_user.id,
+            )
+        )
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Канал {channel_id} не найден или не твой.")
+            return
+        src_res = await session.execute(
+            select(ChannelSource).where(
+                ChannelSource.channel_id == channel_id,
+                ChannelSource.twitter_username == username,
+            )
+        )
+        src = src_res.scalar_one_or_none()
+        if src is None:
+            await message.answer(
+                f"Источник @{username} не найден в канале {channel_id}. "
+                f"Список — /sources {channel_id}."
+            )
+            return
+        src.min_interest = new_floor
+        await session.commit()
+    if new_floor is None:
+        await message.answer(
+            f"✅ Персональный порог для <b>@{username}</b> снят — действует общий "
+            f"порог канала ({channel.min_interest or 0})."
+        )
+    else:
+        await message.answer(
+            f"✅ Источник <b>@{username}</b>: персональный порог <b>{new_floor}/10</b>. "
+            f"Теперь от него публикуются только твиты с оценкой ≥{new_floor} по теме канала."
+        )
 
 
 @router.message(Command("setminterest"))
