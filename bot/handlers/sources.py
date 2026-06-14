@@ -726,6 +726,11 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
         parts.append("📊 Виральность: отключена (фильтр unfiltered)")
     else:
         parts.append(f"📊 Виральность: мин. лайков={channel.min_likes}, мин. ретвитов={channel.min_retweets}")
+    if (channel.min_interest or 0) > 0:
+        parts.append(
+            f"🎯 Порог интереса: {channel.min_interest}/10 — публикуем только твиты, "
+            f"которые AI-редактор оценил ≥{channel.min_interest} по теме канала"
+        )
 
     target_str = channel.target_chat_title or (
         str(channel.target_chat_id) if channel.target_chat_id else "не привязан"
@@ -846,6 +851,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     parts.append("🛠 <b>Команды:</b>")
     parts.append(f"  <code>/sources {channel_id}</code> — управление источниками")
     parts.append(f"  <code>/setthreshold {channel_id} likes=N retweets=N</code> — виральность")
+    parts.append(f"  <code>/setminterest {channel_id} 0-10</code> — порог интереса (AI-оценка темы)")
     parts.append(f"  <code>/regenerate {channel_id}</code> — пересоздать через AI")
     images_cmd = "off" if channel.images_enabled else "on"
     parts.append(f"  <code>/setimages {channel_id} {images_cmd}</code> — переключить картинки")

@@ -174,7 +174,7 @@ async def callback_create_template(call) -> None:
             f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
             f"1️⃣ Создай Telegram-канал\n"
             f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
-            f"3️⃣ Перешли боту любое сообщение из канала\n\n"
+            f"3️⃣ Перешли (forward) любой пост из канала\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📋 Список твоих каналов: /channels"
         ),
@@ -215,7 +215,7 @@ async def cmd_channels(message: Message) -> None:
         target_info = (
             f"📍 {ch.target_chat_title or ch.target_chat_id}"
             if ch.target_chat_id
-            else "<i>⚠️ канал не настроен — переслай мне сообщение из канала</i>"
+            else "<i>⚠️ канал не настроен — перешли (forward) любой пост из канала</i>"
         )
         active = "✅" if ch.is_active else "⏸"
 
@@ -405,7 +405,7 @@ async def _create_from_template(message: Message, template_id: str) -> None:
         f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
         f"1️⃣ Создай Telegram-канал\n"
         f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
-        f"3️⃣ Перешли боту любое сообщение из канала\n\n"
+        f"3️⃣ Перешли (forward) любой пост из канала\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📋 Список твоих каналов: /channels"
     )
@@ -667,7 +667,7 @@ async def _create_with_ai(
         f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
         f"1️⃣ Создай Telegram-канал\n"
         f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
-        f"3️⃣ Перешли боту любое сообщение из канала\n\n"
+        f"3️⃣ Перешли (forward) любой пост из канала\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📋 Список твоих каналов: /channels"
     )
