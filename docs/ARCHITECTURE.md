@@ -122,6 +122,11 @@ twidgest-bot/
   - Перед rewrite кандидаты проходят ревьювер-ранкер (`core/candidate_ranker.py`):
     junk → `skipped_at` + RejectionLog `review:*`, остальные сортируются по interest.
     При сбое LLM — fail-open на порядок по engagement (канал не должен молчать)
+  - **Порог интереса** (`channel.min_interest`, 0 = выкл): кандидаты с
+    `verdict.interest < min_interest` скипаются (`skipped_at` + RejectionLog
+    `review:low_interest N<floor`) — канал лучше промолчит, чем выложит оффтоп.
+    Делает всеядные мегааккаунты (elonmusk и т.п.) пригодными источниками.
+    Команда `/setminterest <id> <0-10>` в `bot/handlers/sources.py`.
 - Single для пуристого single режима: `workers/collector.py`, после `enqueue_for_digest`
 - ⚠️ Все три места независимо проверяют квоты, dedup, фильтры
 - ⚠️ Колонки `posted_at_single`, `skipped_at` в `digest_queue` — не удалять без понимания lifecycle
@@ -154,7 +159,17 @@ twidgest-bot/
 
 ### "Хочу метрики, себестоимость или отчёты"
 
-- Себестоимость twidgest: `core/metrics.py` — кумулятивные счётчики, строки
+- **Себестоимость v2** (`bot/handlers/costs.py`, `/costs [days]`): пер-канальная
+  атрибуция LLM (скоуп `metrics.channel_begin/end` вокруг обработки канала →
+  `channel_costs`), Twitter — глобально по `tw_tweets` (биллинг twitterapi.io
+  за возвращённый твит, $0.00015/шт), раскидывается по каналам ∝ активным
+  источникам. Итог: $/канал/день против 999⭐.
+- **Живые цены** (`core/pricing.py`): цена LLM берётся с OpenRouter
+  `/api/v1/models` по сконфигурированной модели (кэш 24ч). Переопределение env:
+  `LLM_IN_PER_MTOK`/`LLM_OUT_PER_MTOK`/`TW_USD_PER_TWEET`. Fallback-константы —
+  последний рубеж. `/costs` пишет в футере источник цены (`env`/`openrouter`/
+  `fallback`). Менять хардкод цен НЕ нужно — модель сменилась, цена подтянулась.
+- Себестоимость twidgest (старое, кумулятив): `core/metrics.py` — счётчики, строки
   `cost-totals:` в логах после циклов collector/viral_picker. Снятие: разница
   значений за период ÷ дни ÷ каналы (grep по journalctl).
 - AI-бюджет: `core/budget.py` — дневной лимит оценок на канал, при исчерпании
@@ -206,7 +221,7 @@ journalctl -u twidgest-bot --since "10 minutes ago" --no-pager | tail -50
    капов), но и не подключать в новый код — активность каналов решает только `core/plan.py`.
 4. **`legal/*.md`** — изменения только с юр.консультацией.
 5. **`venv/`, `*.db`, `.env`** — никогда не комитить (защищено `.gitignore`).
-6. **Engagement thresholds в коде** — пороги `min_likes` / `min_retweets` приходят из `channel.min_likes` / `channel.min_retweets` (per-channel настройка пользователя). НЕ добавлять глобальные константы-пороги в `workers/viral_picker.py` или `workers/collector.py` — они переопределят настройки пользователей.
+6. **Engagement thresholds в коде** — пороги `min_likes` / `min_retweets` приходят из `channel.min_likes` / `channel.min_retweets` (per-channel настройка пользователя). НЕ добавлять глобальные константы-пороги в `workers/viral_picker.py` или `workers/collector.py` — они переопределят настройки пользователей. **Дефолты при создании** — в `engagement_defaults.py` (карта niche→пороги): унифицированы в 10/2 для всех ниш (sports 50/5). Принцип: дефолт ПРОПУСКАЕТ поток, планку вверх двигает пользователь через `/setthreshold`. Подтверждено данными (на пороге 10 проходит ~95% недельного потока). `db/models.py` default=200 — мёртвый, AI-каналы всегда берут из `get_engagement_defaults`.
 
 ## Команды для быстрой проверки
 
@@ -297,3 +312,19 @@ sqlite3 twidgest.db "SELECT id, title, filter_preset FROM channels;"
 12. **Активность канала проверяется ТОЛЬКО через `core.plan.channel_active()`.**
    Прямые сравнения `user.tier`, `tier_expires_at` и т.п. в воркерах/хендлерах —
    регрессия к снесённой модели; при ревью такого кода — переписать на plan.
+
+13. **Локальный `from ... import X` затеняет модульное имя X для ВСЕЙ функции.**
+   Python решает локальность на этапе компиляции функции, поэтому код ВЫШЕ
+   локального импорта падает с `UnboundLocalError`. Реальный кейс: в SKIP-ветке
+   viral_picker был `from db.models import RejectionLog`, и junk-ветка ранкера
+   (строка 246, выше импорта) крашила обработку канала, теряя постинг. Фикс —
+   убрать локальный импорт (имя уже на уровне модуля). AST-проверка ImportFrom
+   внутри функций обязательна (шаблон в `WORKFLOW.md`).
+
+14. **Карточка показывает РЕАЛЬНО подключённое, не кандидатов до проверки.**
+   Реальный кейс: список источников строился из `selected[:15]` (кандидаты
+   скаута), а в канал шёл `sources_list` (прошедшие двойную проверку). На узкой
+   теме «кофе» пользователь видел 9 имён в карточке и 6 в `/sources` — отвергнутые
+   аккаунты показывались как источники. Правило: любой UI-счётчик/список берётся
+   из того, что реально в системе, и три числа воронки (найдено/проверено/
+   подключено) должны сходиться с `/sources`.
