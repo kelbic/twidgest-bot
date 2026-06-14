@@ -170,11 +170,13 @@ async def callback_create_template(call) -> None:
             f"{_slot_status_line(channel)}"
             f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
             f"⚙️ Режим: hybrid (4 дайджеста + до 5 виральных постов в день)\n\n"
-            f"<b>⚠️ Следующий шаг:</b>\n"
-            f"1. Создай Telegram-канал\n"
-            f"2. Добавь @TwidgestBot админом\n"
-            f"3. Перешли мне любое сообщение из канала\n\n"
-            f"Список твоих каналов: /channels"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
+            f"1️⃣ Создай Telegram-канал\n"
+            f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
+            f"3️⃣ Перешли боту любое сообщение из канала\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📋 Список твоих каналов: /channels"
         ),
     )
 
@@ -652,20 +654,13 @@ async def _create_with_ai(
 
     lines.append(
         f"\n⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
-        f"<b>⚠️ Следующий шаг:</b>\n"
-        f"1. Создай Telegram-канал\n"
-        f"2. Добавь @TwidgestBot админом\n"
-        f"3. Перешли мне любое сообщение из канала\n\n"
-        f"<b>🛠 Управление каналом:</b>\n"
-        f"/status {channel.id} — диагностика канала\n"
-        f"/sources {channel.id} — управление источниками\n"
-        f"/addsource {channel.id} @user — добавить Twitter\n"
-        f"/addsource {channel.id} vk:domain — добавить VK\n"
-        f"/regenerate {channel.id} — пересоздать источники через AI\n"
-        f"/setfilter {channel.id} strict|loose|unfiltered — фильтр (см. /filters)\n"
-        f"/setthreshold {channel.id} likes=N retweets=N — виральность\n"
-        f"/setimages {channel.id} on|off — картинки в канале\n"
-        f"/deletechannel {channel.id} — удалить канал"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
+        f"1️⃣ Создай Telegram-канал\n"
+        f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
+        f"3️⃣ Перешли боту любое сообщение из канала\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📋 Список твоих каналов: /channels"
     )
     await status_msg.edit_text("\n".join(lines))
 
