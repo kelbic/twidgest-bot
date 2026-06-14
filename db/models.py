@@ -91,6 +91,10 @@ class Channel(Base):
     # Этап C: оплата и триал живут НА КАНАЛЕ (слот = канал, 999⭐/30д)
     paid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     trial_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Архив: канал неактивен >7 дней. Мягкое скрытие из /me и /admin channels —
+    # данные целы, оплата сбрасывает флаг и оживляет канал. Воркеры его и так не
+    # трогают (inactive гейтится pre-fetch). Ставится тихо в expiry_check.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     # Порог интереса ранкера (0 = выкл): кандидаты с interest ниже порога
     # скипаются — лучше промолчать цикл, чем публиковать оффтоп/воду.

@@ -276,6 +276,7 @@ async def _admin_channels(message: Message) -> None:
         result = await session.execute(
             select(Channel)
             .join(User, Channel.user_id == User.tg_user_id)
+            .where(Channel.archived_at == None)  # noqa: E711
             .options(selectinload(Channel.user), selectinload(Channel.channel_sources))
             .order_by(Channel.created_at.desc())
             .limit(50)

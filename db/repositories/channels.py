@@ -74,7 +74,7 @@ async def create_channel(
 async def get_user_channels(session: AsyncSession, user_id: int) -> list[Channel]:
     result = await session.execute(
         select(Channel)
-        .where(Channel.user_id == user_id)
+        .where(Channel.user_id == user_id, Channel.archived_at == None)  # noqa: E711
         .options(selectinload(Channel.channel_sources))
         .order_by(Channel.created_at.desc())
     )

@@ -172,6 +172,7 @@ async def on_successful_payment(message: Message) -> None:
                 return
             new_until = extension_base(channel) + timedelta(days=SLOT_DAYS)
             channel.paid_until = new_until
+            channel.archived_at = None  # оплата воскрешает из архива
             await session.commit()
             await record_payment(
                 session, uid, sp.total_amount, f"slot:{channel_id}",

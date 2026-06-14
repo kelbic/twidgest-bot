@@ -60,10 +60,13 @@ async def _safe_send(bot: Bot, uid: int, text: str, kb) -> bool:
         return False
 
 
+ARCHIVE_AFTER_DAYS = 7  # через сколько дней неактивности канал уходит в архив
+
+
 async def run_expiry_check(bot: Bot) -> None:
     logger.info("=== Expiry check started (slot model) ===")
     now = datetime.utcnow()
-    reminded = trial_checked = silenced = 0
+    reminded = trial_checked = silenced = archived = 0
 
     async with session_maker()() as session:
         result = await session.execute(
@@ -127,7 +130,25 @@ async def run_expiry_check(bot: Bot) -> None:
                     )
                     silenced += ok
 
+            # 4) Архивация: неактивен >ARCHIVE_AFTER_DAYS и ещё не в архиве.
+            #    Опора на max(paid_until, trial_until, created_at) — устойчиво к
+            #    NULL-датам (каналы без проставленного триала уходят по created_at).
+            #    Тихо: владелец уже получил уведомление в окне замолкания.
+            if ch.archived_at is None and channel_status(ch) == "inactive":
+                ends = [d for d in (ch.paid_until, ch.trial_until, ch.created_at) if d]
+                ref = max(ends) if ends else None
+                if ref and ref <= now - timedelta(days=ARCHIVE_AFTER_DAYS):
+                    ch.archived_at = now
+                    archived += 1
+                    logger.info(
+                        "expiry: channel %d archived (inactive since %s)",
+                        ch.id, ref.strftime("%Y-%m-%d"),
+                    )
+
+        await session.commit()
+
     logger.info(
-        "=== Expiry check done. Reminded: %d, trial-checks: %d, silenced: %d ===",
-        reminded, trial_checked, silenced,
+        "=== Expiry check done. Reminded: %d, trial-checks: %d, silenced: %d, "
+        "archived: %d ===",
+        reminded, trial_checked, silenced, archived,
     )
