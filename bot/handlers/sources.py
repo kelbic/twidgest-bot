@@ -97,7 +97,8 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
     lines.append(
         f"\n<b>Команды:</b>\n"
         f"  Добавить: <code>/addsource {channel_id} @user</code> или <code>vk:domain</code>\n"
-        f"  Удалить: <code>/removesource {channel_id} @username</code>"
+        f"  Удалить: <code>/removesource {channel_id} @username</code>\n"
+        f"  Порог источника: <code>/setsourceinterest {channel_id} @user 0-10</code> (для смешанных)"
     )
     await message.answer("\n".join(lines))
 
