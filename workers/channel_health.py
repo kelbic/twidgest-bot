@@ -26,6 +26,7 @@ from sqlalchemy.orm import selectinload
 
 from db.models import (
     Channel,
+    ChannelSource,
     HealthNotification,
     PostLog,
     RejectionLog,
@@ -346,6 +347,25 @@ async def _check_channel(channel: Channel, bot: Bot) -> None:
                 "Channel %d healthy: last post %s ago, top source @%s has %.0f%% (need %.0f%%)",
                 channel.id, now - last_post if last_post else "n/a",
                 dominant_user, share * 100, SOURCE_DOMINATION_THRESHOLD * 100,
+            )
+            return
+
+        # Если у доминирующего источника задан ПЕРСОНАЛЬНЫЙ порог интереса —
+        # высокая доля отказов намеренная (владелец сам поставил жёсткий порог
+        # "смешанному" источнику, его оффтоп режется by design). Советовать
+        # удаление тут вредно — не шлём алерт.
+        src_floor_row = await session.execute(
+            select(ChannelSource.min_interest).where(
+                ChannelSource.channel_id == channel.id,
+                ChannelSource.twitter_username == dominant_user,
+                ChannelSource.min_interest != None,  # noqa: E711
+            )
+        )
+        if src_floor_row.scalar_one_or_none() is not None:
+            logger.info(
+                "Channel %d: @%s dominates rejections (%.0f%%) but has a personal "
+                "interest floor — intentional, not alerting",
+                channel.id, dominant_user, share * 100,
             )
             return
 
