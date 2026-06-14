@@ -277,7 +277,10 @@ async def cmd_channels(message: Message) -> None:
         # Порог интереса ранкера — показываем только когда включён (0 = выкл)
         interest_str = ""
         if (ch.min_interest or 0) > 0:
-            interest_str = f"\n  🎯 Порог интереса: {ch.min_interest}/10 (AI-оценка темы)"
+            interest_str = (
+                f"\n  🎯 Порог интереса: {ch.min_interest}/10 — публикуем только "
+                f"твиты, которые AI-редактор оценил ≥{ch.min_interest} по теме канала"
+            )
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
             f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status} | Фильтр: {filter_str}\n"
