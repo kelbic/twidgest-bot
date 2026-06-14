@@ -274,10 +274,14 @@ async def cmd_channels(message: Message) -> None:
             threshold_str = "виральность откл."
         else:
             threshold_str = f"лайков≥{ch.min_likes}, ретв≥{ch.min_retweets}"
+        # Порог интереса ранкера — показываем только когда включён (0 = выкл)
+        interest_str = ""
+        if (ch.min_interest or 0) > 0:
+            interest_str = f"\n  🎯 Порог интереса: {ch.min_interest}/10 (AI-оценка темы)"
         lines.append(
             f"{active} <b>{ch.title}</b> (id={ch.id})\n"
             f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status} | Фильтр: {filter_str}\n"
-            f"  Источников: {len(ch.channel_sources)} | 📊 {threshold_str}\n"
+            f"  Источников: {len(ch.channel_sources)} | 📊 {threshold_str}{interest_str}\n"
             f"  {target_info}\n"
             f"  {last_info}"
         )
@@ -288,6 +292,8 @@ async def cmd_channels(message: Message) -> None:
         "  /removesource &lt;id&gt; @user — удалить\n"
         "  /scout &lt;id&gt; — AI-скаут: подобрать новые источники\n"
         "  /regenerate &lt;id&gt; — пересоздать источники\n  /setimages &lt;id&gt; on|off — картинки в канале\n"
+        "  /setthreshold &lt;id&gt; likes=N retweets=N — порог виральности\n"
+        "  /setminterest &lt;id&gt; 0-10 — порог интереса (AI-оценка темы)\n"
         "  /deletechannel &lt;id&gt; — удалить канал"
     )
     await message.answer("\n\n".join(lines))
