@@ -82,6 +82,29 @@ def jaccard_similarity(sig1: str, sig2: str) -> float:
     return intersection / union if union > 0 else 0.0
 
 
+def dedup_within(texts: list[str], similarity_threshold: float = 0.30) -> list[int]:
+    """Индексы текстов, оставшихся после внутреннего дедупа.
+
+    Жадно идём по списку, держим сигнатуры принятых; новый текст отбрасываем,
+    если он похож (Jaccard >= threshold) на любой уже принятый. Порядок входа
+    сохраняется (приоритет у того, кто раньше — в publisher это свежесть/
+    engagement). Порог 0.30 — как у меж-постового дедупа: ловит «три запуска
+    Starlink за день» даже при разных формулировках (Falcon 9 / SpaceX вывел).
+    """
+    kept_sigs: list[str] = []
+    kept_idx: list[int] = []
+    for i, text in enumerate(texts):
+        sig = compute_topic_signature(text)
+        if not sig:
+            kept_idx.append(i)
+            continue
+        if any(jaccard_similarity(sig, ks) >= similarity_threshold for ks in kept_sigs):
+            continue
+        kept_sigs.append(sig)
+        kept_idx.append(i)
+    return kept_idx
+
+
 async def is_duplicate_topic(
     session: AsyncSession,
     channel_id: int,
