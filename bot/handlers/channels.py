@@ -390,11 +390,13 @@ async def _create_from_template(message: Message, template_id: str) -> None:
         f"{_slot_status_line(channel)}"
         f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
         f"⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
-        f"<b>⚠️ Следующий шаг:</b>\n"
-        f"1. Создай Telegram-канал\n"
-        f"2. Добавь @TwidgestBot админом с правом «Публикация сообщений»\n"
-        f"3. Перешли мне любое сообщение из канала\n\n"
-        f"Список твоих каналов: /channels"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
+        f"1️⃣ Создай Telegram-канал\n"
+        f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
+        f"3️⃣ Перешли боту любое сообщение из канала\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📋 Список твоих каналов: /channels"
     )
 
 
