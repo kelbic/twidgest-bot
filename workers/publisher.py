@@ -18,6 +18,7 @@ from core.plan import channel_active, digest_floor, posts_cap
 from core import metrics
 from db.repositories.channel_costs import save_channel_cost
 from core.safe_sender import ChannelTarget, send_to_target
+from core.topic_dedup import dedup_within
 from db.models import Channel, User
 from db.repositories.tweets import (
     clear_digest_items,
@@ -136,6 +137,21 @@ async def _process_channel(
             )
             return
 
+        # Внутри-дайджестный дедуп: режем явные близнецы (три запуска Starlink за
+        # день → один). Очередь чистится целиком ниже, близнецы не зависнут.
+        keep = set(dedup_within([t.text for t in queue]))
+        deduped = [t for i, t in enumerate(queue) if i in keep]
+        if len(deduped) < len(queue):
+            logger.info(
+                "publisher: channel %d digest dedup %d -> %d (срезаны близнецы)",
+                channel.id, len(queue), len(deduped),
+            )
+        if len(deduped) < 2:
+            logger.info(
+                "Channel %d: после дедупа осталось %d < 2, пропуск дайджеста",
+                channel.id, len(deduped),
+            )
+            return
         digest_tweets = [
             DigestTweet(
                 username=t.twitter_username,
@@ -144,7 +160,7 @@ async def _process_channel(
                 likes=t.likes,
                 retweets=t.retweets,
             )
-            for t in queue
+            for t in deduped
         ]
 
         # Выбираем промпт в зависимости от фильтра
