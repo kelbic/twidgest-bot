@@ -1,6 +1,8 @@
 """Команды /start, /help, /me."""
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import (
@@ -163,7 +165,7 @@ async def cmd_me(message: Message) -> None:
         channels = list(user.channels) if hasattr(user, "channels") else []
         st_emoji = {"admin": "🛡", "paid": "🟢", "trial": "🎁", "inactive": "🔴"}
         ch_lines = [
-            f"  {st_emoji[channel_status(c)]} <b>{c.title[:40]}</b> (id={c.id})"
+            f"  {st_emoji[channel_status(c)]} <b>{html.escape((c.title or '')[:40])}</b> (id={c.id})"
             for c in channels
         ] or ["  — пока нет, напиши тему одним сообщением"]
 

@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime, timedelta
 
@@ -79,7 +80,7 @@ async def run_expiry_check(bot: Bot) -> None:
             if ch.paid_until and now + timedelta(hours=12) < ch.paid_until <= now + timedelta(hours=36):
                 ok = await _safe_send(
                     bot, ch.user_id,
-                    f"⏰ Оплата канала <b>«{ch.title}»</b> заканчивается "
+                    f"⏰ Оплата канала <b>«{html.escape(ch.title or '')}»</b> заканчивается "
                     f"<b>{ch.paid_until:%d.%m %H:%M} UTC</b>.\n\n"
                     f"После этого публикации остановятся. Продление добавит "
                     f"30 дней к текущей дате — ничего не сгорит.",
@@ -94,13 +95,13 @@ async def run_expiry_check(bot: Bot) -> None:
                 hours = _hours_saved(posts)
                 if posts > 0:
                     body = (
-                        f"За триал канал <b>«{ch.title}»</b> опубликовал "
+                        f"За триал канал <b>«{html.escape(ch.title or '')}»</b> опубликовал "
                         f"<b>{posts} постов</b> — вручную это ~{hours} ч работы: "
                         f"найти твиты, перевести, отредактировать, выложить.\n\n"
                     )
                 else:
                     body = (
-                        f"Канал <b>«{ch.title}»</b> пока не опубликовал ни одного "
+                        f"Канал <b>«{html.escape(ch.title or '')}»</b> пока не опубликовал ни одного "
                         f"поста — похоже, он не привязан. Перешли мне любое "
                         f"сообщение из канала, и публикации начнутся.\n\n"
                     )
@@ -122,7 +123,7 @@ async def run_expiry_check(bot: Bot) -> None:
                         and channel_status(ch) == "inactive":
                     ok = await _safe_send(
                         bot, ch.user_id,
-                        f"🔇 Канал <b>«{ch.title}»</b> остановлен — период "
+                        f"🔇 Канал <b>«{html.escape(ch.title or '')}»</b> остановлен — период "
                         f"закончился {last_end:%d.%m %H:%M} UTC.\n\n"
                         f"Источники, настройки и история целы. Оплата вернёт "
                         f"публикации в течение получаса.",

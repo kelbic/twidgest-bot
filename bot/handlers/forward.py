@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.types import Message
 
@@ -47,7 +49,7 @@ async def handle_forwarded_from_channel(message: Message) -> None:
         if already_used:
             await message.answer(
                 f"⚠️ Этот канал <b>{chat_title}</b> уже привязан к "
-                f"твоему каналу <b>{already_used.title}</b> (id={already_used.id})."
+                f"твоему каналу <b>{html.escape(already_used.title or '')}</b> (id={already_used.id})."
             )
             return
 
@@ -100,7 +102,7 @@ async def handle_forwarded_from_channel(message: Message) -> None:
         ]
         for ch in unbound:
             lines.append(
-                f"  • <b>{ch.title}</b> (id={ch.id})"
+                f"  • <b>{html.escape(ch.title or '')}</b> (id={ch.id})"
             )
         lines.append(
             f"\nКоманда: <code>/bind {chat_id} &lt;channel_id&gt;</code>"
@@ -135,5 +137,5 @@ async def cmd_bind(message: Message) -> None:
 
     await message.answer(
         f"✅ chat_id <code>{chat_id}</code> привязан к каналу "
-        f"<b>{target_channel.title}</b> (id={channel_id})."
+        f"<b>{html.escape(target_channel.title or '')}</b> (id={channel_id})."
     )
