@@ -1,6 +1,7 @@
 """Команды для Channel: /channels, /createchannel, /templates."""
 from __future__ import annotations
 
+import html
 import logging
 
 from aiogram import Router
@@ -282,8 +283,8 @@ async def cmd_channels(message: Message) -> None:
                 f"твиты, которые AI-редактор оценил ≥{ch.min_interest} по теме канала"
             )
         lines.append(
-            f"{active} <b>{ch.title}</b> (id={ch.id})\n"
-            f"  Тема: {ch.niche} | Режим: {ch.mode} | {images_status} | Фильтр: {filter_str}\n"
+            f"{active} <b>{html.escape(ch.title or '')}</b> (id={ch.id})\n"
+            f"  Тема: {html.escape(ch.niche or '')} | Режим: {html.escape(ch.mode or '')} | {images_status} | Фильтр: {filter_str}\n"
             f"  Источников: {len(ch.channel_sources)} | 📊 {threshold_str}{interest_str}\n"
             f"  {target_info}\n"
             f"  {last_info}"
@@ -657,7 +658,7 @@ async def _create_with_ai(
     for u in sources_list:
         reason = reason_by_user.get(u.lstrip("@").strip().lower(), "").strip()
         if reason:
-            lines.append(f"  • @{u} — {reason}")
+            lines.append(f"  • @{html.escape(str(u))} — {html.escape(str(reason))}")
         else:
             lines.append(f"  • @{u}")
 
