@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime, timedelta
 
@@ -43,7 +44,7 @@ async def _channel_week(session, ch: Channel, since: datetime) -> str | None:
             RejectionLog.rejected_at > since,
             RejectionLog.reason.like("review:%"))))).scalar_one()
 
-    line = (f"📣 <b>{ch.title[:48]}</b>\n"
+    line = (f"📣 <b>{html.escape((ch.title or '')[:48])}</b>\n"
             f"   Постов: <b>{posts}</b> (дайджестов {digests}, "
             f"одиночных {posts - digests})")
     if avg_int is not None:

@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 from collections import Counter
 from datetime import datetime, timedelta
@@ -184,7 +185,7 @@ def _build_diagnostic_message(
     advice_str = "\n".join(advice_lines)
 
     return (
-        f"🔔 <b>Канал «{channel.title}» молчит</b>\n\n"
+        f"🔔 <b>Канал «{html.escape(channel.title or '')}» молчит</b>\n\n"
         f"Уже несколько часов не опубликовано ни одного поста, "
         f"а бот отклонил <b>{total}</b> твитов — контент не прошёл обработку.\n\n"
         f"<b>Источники по числу отклонений:</b>\n{sources_str}\n\n"
@@ -202,14 +203,14 @@ def _build_source_domination_message(
     """Алерт о том, что один источник заваливает отбор кандидатов."""
     pct = round(100 * dominant_count / total) if total else 0
     return (
-        f"⚠️ <b>Канал «{channel.title}» работает медленнее обычного</b>\n\n"
-        f"Источник <b>@{dominant_user}</b> заваливает отбор: "
+        f"⚠️ <b>Канал «{html.escape(channel.title or '')}» работает медленнее обычного</b>\n\n"
+        f"Источник <b>@{html.escape(str(dominant_user))}</b> заваливает отбор: "
         f"<b>{dominant_count}</b> из <b>{total}</b> отказов за сутки "
         f"({pct}%) приходится на него. Бот теряет много времени, "
         f"отбраковывая эти твиты, и до публикации добирается мало "
         f"кандидатов.\n\n"
         f"<b>🎯 Решение:</b>\n"
-        f"<code>/removesource {channel.id} @{dominant_user}</code>\n\n"
+        f"<code>/removesource {channel.id} @{html.escape(str(dominant_user))}</code>\n\n"
         f"Это удалит источник из канала. Бот сразу начнёт постить чаще, "
         f"потому что больше не будет пытаться публиковать твиты, "
         f"которые фильтр отклоняет.\n\n"
