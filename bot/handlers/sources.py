@@ -594,7 +594,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
         lines = ["Твои каналы:\n"]
         for ch in chans:
             lines.append(
-                f"  {st_emoji[channel_status(ch)]} <b>{ch.title[:40]}</b> (id={ch.id})")
+                f"  {st_emoji[channel_status(ch)]} <b>{html.escape(ch.title[:40] or '')}</b> (id={ch.id})")
         lines.append("\nДетали: <code>/status &lt;id&gt;</code>")
         await message.answer("\n".join(lines))
         return
@@ -776,7 +776,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
 
     if total_rejections > 0:
         rej_str = ", ".join(
-            f"{cnt} <code>{reason}</code>"
+            f"{cnt} <code>{html.escape(str(reason))}</code>"
             for reason, cnt in sorted(rejections_by_reason.items(), key=lambda x: -x[1])
         )
         parts.append(f"  Отказов фильтра: <b>{total_rejections}</b> ({rej_str})")
@@ -801,7 +801,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
             elif reject_info:
                 icon = "⏸"
                 reason, ts = reject_info
-                status_text = f"отклонено ({reason})"
+                status_text = f"отклонено ({html.escape(str(reason))})"
             elif last_seen:
                 delta = now - last_seen
                 if delta.total_seconds() < 3600:
@@ -817,7 +817,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
                 status_text = "ни одного твита"
 
             src_prefix = "" if uname.startswith("vk:") else "@"
-            parts.append(f"  {icon} {src_prefix}{uname} — {status_text}")
+            parts.append(f"  {icon} {src_prefix}{html.escape(uname or '')} — {status_text}")
 
     # === Очередь и расписание ===
     parts.append("")
