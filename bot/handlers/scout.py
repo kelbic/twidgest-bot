@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime, timedelta
 
@@ -107,14 +108,14 @@ def _render_card(
     channel: Channel, suggestions: list[ScoutSuggestion]
 ) -> tuple[str, InlineKeyboardMarkup]:
     lines = [
-        f"🔍 <b>Скаут: кандидаты для «{channel.title}»</b>\n",
+        f"🔍 <b>Скаут: кандидаты для «{html.escape(channel.title or '')}»</b>\n",
         "Проверил последние твиты каждого — это реальные метрики, "
         "не обещания:\n",
     ]
     for i, s in enumerate(suggestions, 1):
-        reason = f" — {s.reason}" if s.reason else ""
-        lines.append(f"{i}. <b>@{s.username}</b>{reason}")
-        lines.append(f"   <i>{s.stats}</i>")
+        reason = f" — {html.escape(str(s.reason))}" if s.reason else ""
+        lines.append(f"{i}. <b>@{html.escape(str(s.username))}</b>{reason}")
+        lines.append(f"   <i>{html.escape(str(s.stats))}</i>")
     lines.append(
         "\n«Прошло бы фильтр» — сколько из последних твитов автора "
         "удовлетворяют порогам именно этого канала."
@@ -202,7 +203,7 @@ async def _run_scout_flow(status_msg: Message, uid: int, channel_id: int) -> Non
 
     if not stats:
         await status_msg.edit_text(
-            f"😕 Не нашёл подходящих новых авторов для «{channel.title}».\n\n"
+            f"😕 Не нашёл подходящих новых авторов для «{html.escape(channel.title or '')}».\n\n"
             "Кандидаты были, но не прошли проверку: либо постят медиа без "
             "текста, либо их твиты не дотягивают до порогов канала "
             f"(min_likes={channel.min_likes}).\n\n"
