@@ -81,7 +81,7 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
 
     if not channel.channel_sources:
         await message.answer(
-            f"<b>{channel.title}</b> (id={channel_id})\n\n"
+            f"<b>{html.escape(channel.title or '')}</b> (id={channel_id})\n\n"
             f"Источников нет.\n\n"
             f"Добавить: <code>/addsource {channel_id} @user</code> или <code>vk:domain</code>"
         )
@@ -192,7 +192,7 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
 
         await status_msg.edit_text(
             f"✅ VK источник <b>{community.name}</b> (<code>{stored_id}</code>) "
-            f"добавлен в канал <b>{channel.title}</b>.\n\n"
+            f"добавлен в канал <b>{html.escape(channel.title or '')}</b>.\n\n"
             f"👥 Подписчиков: {community.members_count:,}\n"
             f"Бот начнёт собирать посты в следующем цикле (до 30 мин)."
         )
@@ -232,7 +232,7 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
             await session.commit()
 
         await status_msg.edit_text(
-            f"✅ Источник <b>@{username}</b> добавлен в канал <b>{channel.title}</b>.\n\n"
+            f"✅ Источник <b>@{username}</b> добавлен в канал <b>{html.escape(channel.title or '')}</b>.\n\n"
             f"Бот начнёт собирать твиты с него в следующем цикле (до 30 мин)."
         )
 
@@ -297,7 +297,7 @@ async def cmd_removesource(message: Message, command: CommandObject) -> None:
     cleaned = deleted_q.rowcount or 0
     cleanup_note = f"\n🧹 Также удалено {cleaned} ожидающих твитов из очереди." if cleaned > 0 else ""
     await message.answer(
-        f"🗑 Источник <b>@{username}</b> удалён из канала <b>{channel.title}</b>.\n\n"
+        f"🗑 Источник <b>@{username}</b> удалён из канала <b>{html.escape(channel.title or '')}</b>.\n\n"
         f"Осталось источников: {remaining}{cleanup_note}"
     )
 
@@ -339,7 +339,7 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
         return
 
     status_msg = await message.answer(
-        f"🔄 Перегенерирую источники для «{channel.title}»...\n"
+        f"🔄 Перегенерирую источники для «{html.escape(channel.title or '')}»...\n"
         f"Тема: <i>{description}</i>\n"
         f"Шаг 1/3: генерирую новые поисковые запросы..."
     )
@@ -368,7 +368,7 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
 
     queries_display = ", ".join(f"<code>{q}</code>" for q in queries[:6])
     await status_msg.edit_text(
-        f"🔄 Перегенерирую источники для «{channel.title}»\n"
+        f"🔄 Перегенерирую источники для «{html.escape(channel.title or '')}»\n"
         f"Шаг 2/3: ищу аккаунты в X по {len(queries)} запросам:\n{queries_display}"
     )
 
@@ -415,7 +415,7 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
     top_candidates = filtered[:30]
 
     await status_msg.edit_text(
-        f"🔄 Перегенерирую источники для «{channel.title}»\n"
+        f"🔄 Перегенерирую источники для «{html.escape(channel.title or '')}»\n"
         f"Шаг 3/3: нашёл {len(filtered)} кандидатов, выбираю самых релевантных..."
     )
 
@@ -505,13 +505,13 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
     # Show result
     lines = [
         f"✅ <b>Источники перегенерированы!</b>\n",
-        f"📝 <b>{channel.title}</b> (id={channel_id})\n",
+        f"📝 <b>{html.escape(channel.title or '')}</b> (id={channel_id})\n",
         f"📡 <b>Новые источники ({len(selected)}):</b>",
     ]
     for s in selected[:15]:
         reason = s.get("reason", "").strip()
         if reason:
-            lines.append(f"  • @{s['username']} — {reason}")
+            lines.append(f"  • @{html.escape(str(s['username']))} — {html.escape(str(reason))}")
         else:
             lines.append(f"  • @{s['username']}")
 
@@ -566,7 +566,7 @@ async def cmd_setimages(message: Message, command: CommandObject) -> None:
     state_emoji = "🖼" if enable else "📝"
     state_text = "включены" if enable else "отключены"
     await message.answer(
-        f"{state_emoji} Картинки в канале «{channel.title}» <b>{state_text}</b>.\n\n"
+        f"{state_emoji} Картинки в канале «{html.escape(channel.title or '')}» <b>{state_text}</b>.\n\n"
         f"{'Посты будут идти с релевантными фото из Unsplash.' if enable else 'Посты будут только текстом.'}"
     )
 
@@ -978,7 +978,7 @@ async def cmd_setminterest(message: Message, command: CommandObject) -> None:
         await session.commit()
     state = f"{floor}/10" if floor else "выключен"
     await message.answer(
-        f"✅ Порог интереса для <b>«{channel.title[:40]}»</b>: <b>{state}</b>."
+        f"✅ Порог интереса для <b>«{html.escape((channel.title or '')[:40])}»</b>: <b>{state}</b>."
     )
 
 
@@ -1053,7 +1053,7 @@ async def cmd_setthreshold(message: Message, command: CommandObject) -> None:
     likes_val = new_likes if new_likes is not None else channel.min_likes
     retweets_val = new_retweets if new_retweets is not None else channel.min_retweets
     await message.answer(
-        f"✅ Пороги канала <b>«{channel.title}»</b> обновлены:\n"
+        f"✅ Пороги канала <b>«{html.escape(channel.title or '')}»</b> обновлены:\n"
         f"  мин. лайков: <b>{likes_val}</b>\n"
         f"  мин. ретвитов: <b>{retweets_val}</b>\n\n"
         f"<i>Применится к следующему циклу сбора (до 30 мин).</i>"
@@ -1118,7 +1118,7 @@ async def cmd_setfilter(message: Message, command: CommandObject) -> None:
 
     preset = get_preset(preset_code)
     await message.answer(
-        f"{preset.emoji} Фильтр канала <b>«{channel.title}»</b> переключён на "
+        f"{preset.emoji} Фильтр канала <b>«{html.escape(channel.title or '')}»</b> переключён на "
         f"<b>{preset.name}</b>.\n\n"
         f"<i>{preset.description}</i>\n\n"
         f"Изменения применятся к новым твитам в следующем цикле сбора."
