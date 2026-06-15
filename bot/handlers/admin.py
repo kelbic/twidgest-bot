@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from datetime import datetime
 
@@ -319,7 +320,7 @@ async def _admin_channels(message: Message) -> None:
 
         filter_p = ch.filter_preset or "news"
         lines.append(
-            f"#{ch.id} @{username} | {ch.title[:35]}\n"
+            f"#{ch.id} @{username} | {html.escape((ch.title or '')[:35])}\n"
             f"   {ch.mode}/{ch.niche} | sources={len(ch.channel_sources)} | "
             f"last_post={last_str} | rej_24h={rej} | {target} | filter={filter_p}"
         )
@@ -456,7 +457,7 @@ async def _admin_setfilter(message: Message, args: list) -> None:
 
     preset = get_preset(preset_code)
     await message.answer(
-        f"Channel #{channel_id} ({channel.title}) filter changed to "
+        f"Channel #{channel_id} ({html.escape(channel.title or '')}) filter changed to "
         f"{preset.emoji} {preset.name} (owner: {channel.user_id})."
     )
     logger.info(
@@ -519,7 +520,7 @@ async def _admin_addsource(message: Message, args: list) -> None:
             await session.commit()
             await message.answer(
                 f"✅ VK source {stored} ({community.name}) added to channel #{channel_id} "
-                f"({channel.title}, owner: {channel.user_id})."
+                f"({html.escape(channel.title or '')}, owner: {channel.user_id})."
             )
         else:
             username = raw.lstrip("@").strip()
@@ -532,7 +533,7 @@ async def _admin_addsource(message: Message, args: list) -> None:
             await session.commit()
             await message.answer(
                 f"✅ Twitter source @{username} added to channel #{channel_id} "
-                f"({channel.title}, owner: {channel.user_id})."
+                f"({html.escape(channel.title or '')}, owner: {channel.user_id})."
             )
     logger.info("Admin added source '%s' to channel %d", raw, channel_id)
 
@@ -584,7 +585,7 @@ async def _admin_removesource(message: Message, args: list) -> None:
 
     if removed:
         await message.answer(
-            f"✅ Source '{stored}' removed from channel #{channel_id} ({channel.title})."
+            f"✅ Source '{stored}' removed from channel #{channel_id} ({html.escape(channel.title or '')})."
         )
     else:
         await message.answer(
@@ -649,7 +650,7 @@ async def _admin_setthreshold(message: Message, args: list) -> None:
     likes_val = new_likes if new_likes is not None else channel.min_likes
     retweets_val = new_retweets if new_retweets is not None else channel.min_retweets
     await message.answer(
-        f"✅ Channel #{channel_id} ({channel.title}) thresholds updated:\n"
+        f"✅ Channel #{channel_id} ({html.escape(channel.title or '')}) thresholds updated:\n"
         f"  min_likes={likes_val}, min_retweets={retweets_val} (owner: {channel.user_id})"
     )
     logger.info("Admin setthreshold channel %d: likes=%s retweets=%s", channel_id, new_likes, new_retweets)
