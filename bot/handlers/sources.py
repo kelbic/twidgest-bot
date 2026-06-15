@@ -731,9 +731,12 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
         parts.append("📊 Виральность: отключена (фильтр unfiltered)")
     else:
         parts.append(f"📊 Виральность: мин. лайков={channel.min_likes}, мин. ретвитов={channel.min_retweets}")
-    if channel.description:
+    _topic_for_ranker = (channel.description or channel.title or "").strip()
+    if _topic_for_ranker:
         parts.append(
-            f"📝 Тема для AI-редактора: <i>{html.escape(channel.description[:200])}</i>"
+            f"📝 Тема для AI-редактора: <i>{html.escape(_topic_for_ranker[:200])}</i>\n"
+            f"  <i>(берётся из названия; уточнить — "
+            f"<code>/setdescription {channel_id} текст</code>)</i>"
         )
     if (channel.min_interest or 0) > 0:
         parts.append(

@@ -290,6 +290,11 @@ async def cmd_channels(message: Message) -> None:
             f"  {last_info}"
         )
     lines.append(
+        "\n<i>💡 AI-редактор отсекает оффтоп по теме канала (берёт её из названия). "
+        "Если фильтр пропускает не то — уточни тему: "
+        "<code>/setdescription &lt;id&gt; про что канал</code>.</i>"
+    )
+    lines.append(
         "\n<b>Управление:</b>\n"
         "  /sources &lt;id&gt; — источники канала\n  /status &lt;id&gt; — детальная статистика\n"
         "  /addsource &lt;id&gt; @user — добавить\n"
