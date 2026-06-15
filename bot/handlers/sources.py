@@ -731,6 +731,10 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
         parts.append("📊 Виральность: отключена (фильтр unfiltered)")
     else:
         parts.append(f"📊 Виральность: мин. лайков={channel.min_likes}, мин. ретвитов={channel.min_retweets}")
+    if channel.description:
+        parts.append(
+            f"📝 Тема для AI-редактора: <i>{html.escape(channel.description[:200])}</i>"
+        )
     if (channel.min_interest or 0) > 0:
         parts.append(
             f"🎯 Порог интереса: {channel.min_interest}/10 — публикуем только твиты, "
@@ -857,6 +861,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     parts.append(f"  <code>/sources {channel_id}</code> — управление источниками")
     parts.append(f"  <code>/setthreshold {channel_id} likes=N retweets=N</code> — виральность")
     parts.append(f"  <code>/setminterest {channel_id} 0-10</code> — порог интереса (AI-оценка темы)")
+    parts.append(f"  <code>/setdescription {channel_id} текст</code> — тема канала для AI-редактора")
     parts.append(f"  <code>/regenerate {channel_id}</code> — пересоздать через AI")
     images_cmd = "off" if channel.images_enabled else "on"
     parts.append(f"  <code>/setimages {channel_id} {images_cmd}</code> — переключить картинки")
@@ -979,6 +984,52 @@ async def cmd_setminterest(message: Message, command: CommandObject) -> None:
     state = f"{floor}/10" if floor else "выключен"
     await message.answer(
         f"✅ Порог интереса для <b>«{html.escape((channel.title or '')[:40])}»</b>: <b>{state}</b>."
+    )
+
+
+@router.message(Command("setdescription"))
+async def cmd_setdescription(message: Message, command: CommandObject) -> None:
+    """Тема канала для AI-редактора: описание, по которому ранкер оценивает
+    релевантность твитов. Использование: /setdescription <channel_id> <текст>.
+    """
+    if message.from_user is None:
+        return
+    args = (command.args or "").strip()
+    sp = args.split(maxsplit=1)
+    if len(sp) < 2 or not sp[0].isdigit():
+        await message.answer(
+            "Использование: <code>/setdescription &lt;channel_id&gt; &lt;текст темы&gt;</code>\n\n"
+            "Задаёт тему канала, по которой AI-редактор решает, что публиковать, "
+            "а что отбраковать как оффтоп. Чем точнее опишешь — тем строже фильтр.\n\n"
+            "  <code>/setdescription 6 Только искусственный интеллект, нейросети, "
+            "LLM. НЕ про космос, биржу, политику</code>\n\n"
+            "<i>Полезно для всеядных источников: даже если мегааккаунт пишет на "
+            "разные темы, в канал пройдёт только попадание в твою тему. Явно "
+            "перечисли, что НЕ публиковать — это режется строже всего.</i>"
+        )
+        return
+    channel_id = int(sp[0])
+    desc = sp[1].strip()
+    if len(desc) > 500:
+        await message.answer("Описание — до 500 символов. Сократи до сути темы.")
+        return
+    async with session_maker()() as session:
+        result = await session.execute(
+            select(Channel).where(
+                Channel.id == channel_id,
+                Channel.user_id == message.from_user.id,
+            )
+        )
+        channel = result.scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Канал {channel_id} не найден или не твой.")
+            return
+        channel.description = desc
+        await session.commit()
+    await message.answer(
+        f"✅ Тема канала <b>«{html.escape((channel.title or '')[:40])}»</b> обновлена.\n\n"
+        f"AI-редактор теперь оценивает твиты по теме:\n<i>{html.escape(desc[:300])}</i>\n\n"
+        f"Изменения вступят в силу со следующего цикла подбора."
     )
 
 
