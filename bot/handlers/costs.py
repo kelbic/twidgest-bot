@@ -8,6 +8,7 @@ $0.15/1k возвращённых твитов, минимум 15 кредито
 """
 from __future__ import annotations
 
+import html
 from datetime import datetime, timedelta
 
 from aiogram import Router
@@ -82,7 +83,7 @@ async def cmd_costs(message: Message, command: CommandObject) -> None:
         grand += llm_usd
         per_day = ch_usd / span_d if span_d else 0
         lines.append(
-            f"📣 <b>{ch.title[:36]}</b> (id={cid}, источников {src_counts.get(cid, 0)})\n"
+            f"📣 <b>{html.escape((ch.title or '')[:36])}</b> (id={cid}, источников {src_counts.get(cid, 0)})\n"
             f"   LLM: {llm['llm_calls']} вызовов, "
             f"{llm['tin']/1000:.0f}k/{llm['tout']/1000:.0f}k ток. → ${llm_usd:.3f}\n"
             f"   + доля Twitter ${tw_share:.3f} = <b>${ch_usd:.2f}</b> "
