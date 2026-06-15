@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import html
 import re
 
 from aiogram import Router
@@ -86,7 +87,7 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
         )
         return
 
-    lines = [f"📡 <b>Источники канала «{channel.title}»</b> (id={channel_id})\n"]
+    lines = [f"📡 <b>Источники канала «{html.escape(channel.title or '')}»</b> (id={channel_id})\n"]
     for i, src in enumerate(channel.channel_sources, 1):
         active = "✅" if src.is_active else "⏸"
         prefix = "" if src.twitter_username.startswith("vk:") else "@"
@@ -714,15 +715,16 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     # ====== Формируем ответ ======
     parts = []
 
-    title = f"📊 <b>Канал «{channel.title}»</b> (id={channel_id})"
+    _safe_title = html.escape(channel.title or "")
+    title = f"📊 <b>Канал «{_safe_title}»</b> (id={channel_id})"
     parts.append(title)
 
     images_str = "🖼 картинки on" if channel.images_enabled else "📝 без картинок"
     _preset = get_preset(channel.filter_preset)
     filter_str = f"{_preset.emoji} {_preset.name}"
     parts.append(
-        f"🎯 Тема: <code>{channel.niche}</code> | "
-        f"Режим: <code>{channel.mode}</code> | {images_str}"
+        f"🎯 Тема: <code>{html.escape(channel.niche or '')}</code> | "
+        f"Режим: <code>{html.escape(channel.mode or '')}</code> | {images_str}"
     )
     parts.append(f"🎚 Фильтр: {filter_str} (<code>/setfilter {channel_id} ...</code>)")
     if channel.filter_preset == "unfiltered":
@@ -735,7 +737,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
             f"которые AI-редактор оценил ≥{channel.min_interest} по теме канала"
         )
 
-    target_str = channel.target_chat_title or (
+    target_str = html.escape(channel.target_chat_title or "") or (
         str(channel.target_chat_id) if channel.target_chat_id else "не привязан"
     )
     parts.append(f"📍 Куда постит: {target_str}")
