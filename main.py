@@ -101,7 +101,12 @@ async def main() -> None:
     )
     scheduler.add_job(
         run_expiry_check,
-        trigger=IntervalTrigger(hours=24),
+        # CronTrigger, НЕ IntervalTrigger: привязка к времени суток (4:00 UTC),
+        # иначе отсчёт 24ч сбрасывается при КАЖДОМ рестарте бота, и в дни активных
+        # деплоев джоба не прогоняется вообще (напоминания об оплате + архивация
+        # каналов не работают). Окна внутри expiry_check шириной 24ч = периоду
+        # запуска (суточный), дедуп без флагов сохраняется.
+        trigger=CronTrigger(hour=4, minute=0),
         kwargs={"bot": bot},
     )
     scheduler.add_job(
