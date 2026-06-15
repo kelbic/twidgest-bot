@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import DigestLog, DigestQueueItem, PostLog, ProcessedTweet
@@ -67,16 +67,47 @@ async def enqueue_for_digest(
 
 
 async def get_digest_queue(
-    session: AsyncSession, user_id: int, channel_id: int, max_items: int
+    session: AsyncSession, user_id: int, channel_id: int, max_items: int,
+    min_interest: int = 0, source_floors: dict[str, int] | None = None
 ) -> list[DigestQueueItem]:
+    """Очередь для дайджеста. Фильтр темы — СИММЕТРИЧНО viral_picker (single):
+
+    - источник с персональным порогом (source_floors, напр. всеядный Polymarket):
+      берём, только если interest_score IS NOT NULL И >= порога источника
+      (NULL/низкий балл режется — оффтоп смешанного источника не проходит);
+    - профильный источник (без персонального порога): берём, если interest_score
+      NULL (ранкер не оценил — не наказываем) ИЛИ >= канального порога.
+    Без этого дайджест публиковал виральный оффтоп (геополитику от Polymarket),
+    пока single его резал — каналы расходились по содержанию.
+    """
+    source_floors = source_floors or {}
+    base_filters = [
+        DigestQueueItem.user_id == user_id,
+        DigestQueueItem.channel_id == channel_id,
+        DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=14),
+        DigestQueueItem.tweet_created_at > datetime.utcnow() - timedelta(hours=48),
+    ]
+    uname = func.lower(DigestQueueItem.twitter_username)
+    topic_clauses = []
+    floored = set(source_floors.keys())
+    for u, fl in source_floors.items():
+        topic_clauses.append(and_(
+            uname == u,
+            DigestQueueItem.interest_score != None,  # noqa: E711
+            DigestQueueItem.interest_score >= fl,
+        ))
+    profile_clause = and_(
+        uname.notin_(floored) if floored else True,
+        or_(
+            DigestQueueItem.interest_score == None,  # noqa: E711
+            DigestQueueItem.interest_score >= min_interest,
+        ),
+    )
+    topic_clauses.append(profile_clause)
+    base_filters.append(or_(*topic_clauses))
     result = await session.execute(
         select(DigestQueueItem)
-        .where(
-            DigestQueueItem.user_id == user_id,
-            DigestQueueItem.channel_id == channel_id,
-            DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=14),
-            DigestQueueItem.tweet_created_at > datetime.utcnow() - timedelta(hours=48),
-        )
+        .where(*base_filters)
         .order_by((DigestQueueItem.likes + DigestQueueItem.retweets * 3).desc())
         .limit(max_items)
     )

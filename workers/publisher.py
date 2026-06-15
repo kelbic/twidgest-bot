@@ -19,7 +19,7 @@ from core import metrics
 from db.repositories.channel_costs import save_channel_cost
 from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import dedup_within
-from db.models import Channel, User
+from db.models import ChannelSource, Channel, User
 from db.repositories.tweets import (
     clear_digest_items,
     get_digest_queue,
@@ -120,11 +120,22 @@ async def _process_channel(
             return
 
         # Очередь твитов этого юзера
+        # Источниковые пороги канала — СИММЕТРИЧНО viral_picker, чтобы дайджест
+        # и single фильтровали тему одинаково (иначе дайджест публикует оффтоп,
+        # который single режет).
+        sf_rows = await session.execute(
+            select(ChannelSource.twitter_username, ChannelSource.min_interest)
+            .where(ChannelSource.channel_id == channel.id,
+                   ChannelSource.min_interest != None)  # noqa: E711
+        )
+        source_floors = {(u or "").lower(): mi for u, mi in sf_rows.all()}
         queue = await get_digest_queue(
             session,
             user.tg_user_id,
             channel_id=channel.id,
             max_items=channel.digest_max_tweets,
+            min_interest=channel.min_interest or 0,
+            source_floors=source_floors,
         )
         logger.info(
             "publisher: channel %d queue size=%d, max_tweets=%d",
