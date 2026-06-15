@@ -7,6 +7,7 @@ Legacy-ветка "sub:<tier>" оставлена для старых неопл
 """
 from __future__ import annotations
 
+import html
 import logging
 
 from aiogram import F, Router
@@ -78,7 +79,7 @@ async def cmd_upgrade(message: Message) -> None:
     ]
     buttons: list[list[InlineKeyboardButton]] = []
     for ch in channels:
-        lines.append(f"<b>{ch.title}</b> (id={ch.id})\n  {_status_text(ch)}")
+        lines.append(f"<b>{html.escape(ch.title or '')}</b> (id={ch.id})\n  {_status_text(ch)}")
         st = channel_status(ch)
         if st == "admin":
             continue
@@ -183,7 +184,7 @@ async def on_successful_payment(message: Message) -> None:
             channel_id, uid, new_until,
         )
         await message.answer(
-            f"✅ Оплата получена! Канал <b>«{channel.title}»</b> активен "
+            f"✅ Оплата получена! Канал <b>«{html.escape(channel.title or '')}»</b> активен "
             f"до <b>{new_until:%d.%m.%Y}</b>.\n\n"
             f"Статусы всех каналов: /upgrade"
         )
