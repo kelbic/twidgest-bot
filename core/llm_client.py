@@ -396,20 +396,40 @@ class OpenRouterClient:
         Используется ПОСЛЕ rewrite_tweet, на готовом русском тексте поста.
         """
         system = (
-            "You're an image-search keyword extractor. Given a Russian-language news post, "
-            "return 1-3 English keywords that describe the visual subject best for stock photo search. "
-            "Return ONLY the keywords separated by spaces, no quotes, no explanation. "
+            "You're an image-search keyword extractor for a news channel that "
+            "illustrates posts with STOCK photos. Given a Russian-language news post, "
+            "decide whether a generic stock photo would help or HURT.\n\n"
+            "Return SKIP_IMAGE (exactly, nothing else) when the post describes a "
+            "SPECIFIC, RECOGNIZABLE visual subject that a random stock photo would "
+            "misrepresent — making the channel look fake. This includes:\n"
+            "- a specific real astronomical image/event (a pulsar, a red sprite from "
+            "ISS, the far side of the Moon, a named telescope photo, an eclipse shot)\n"
+            "- a specific photograph/footage the post is literally ABOUT "
+            "(a leaked image, a particular satellite capture, 'this photo shows...')\n"
+            "- a specific person's face, a specific named object/device shown\n"
+            "A wrong stock image here is worse than no image.\n\n"
+            "Otherwise return 1-3 English keywords describing the visual subject for "
+            "stock search. Return ONLY keywords separated by spaces, no quotes, no "
+            "explanation.\n\n"
             "Examples:\n"
-            "- Post about F1 race in Turkey → 'formula1 racing'\n"
-            "- Post about manicure trends → 'manicure pink nails'\n"
-            "- Post about NASA rocket launch → 'rocket launch space'\n"
-            "- Post about politics → 'government building flag'\n"
-            "- Post about AI startup → 'artificial intelligence technology'"
+            "- F1 race in Turkey → 'formula1 racing'\n"
+            "- manicure trends → 'manicure pink nails'\n"
+            "- 'NASA plans to launch a rocket next week' (abstract) → 'rocket launch space'\n"
+            "- 'NASA released THIS photo of a red sprite from ISS' (specific image) → SKIP_IMAGE\n"
+            "- 'a pulsar spins 716 times per second' (specific object) → SKIP_IMAGE\n"
+            "- 'satellite captured the Moon passing Earth' (specific capture) → SKIP_IMAGE\n"
+            "- politics → 'government building flag'\n"
+            "- AI startup → 'artificial intelligence technology'"
         )
         user = f"Russian post:\n{post_text[:500]}\n\nKeywords (1-3 English words):"
 
         result = await self._call_with_retry(system, user, max_tokens=30, temperature=0.3)
         if not result:
+            return None
+
+        # LLM решил, что стоковое фото навредит (новость про конкретный
+        # визуальный объект — астрофото, конкретный кадр, лицо). Публикуем текстом.
+        if "SKIP_IMAGE" in result.upper():
             return None
 
         # Чистим: только английские буквы, цифры, пробелы

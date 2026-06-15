@@ -361,8 +361,12 @@ async def _process_hybrid_channel(
                 try:
                     keywords = await llm.suggest_image_keywords(rewritten)
                     if not keywords:
-                        logger.warning(
-                            "Channel %d: LLM returned empty image keywords for post: %s",
+                        # None = LLM решил, что стоковое фото навредит (новость про
+                        # конкретный визуальный объект) ИЛИ сбой. В обоих случаях
+                        # публикуем текстом — это безопасно (лучше без картинки).
+                        logger.info(
+                            "Channel %d: posting without image (LLM skipped stock "
+                            "photo for specific-visual post): %s",
                             channel.id, rewritten[:80],
                         )
                     else:
