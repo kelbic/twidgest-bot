@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime
 
@@ -57,7 +58,7 @@ def _status_kb(ch: Channel) -> InlineKeyboardMarkup:
 def _status_text(ch: Channel) -> str:
     state = "🟢 ВКЛЮЧЁН" if ch.legal_rf_filter else "🔴 ОТКЛЮЧЁН (под твою ответственность)"
     return (
-        f"⚖️ <b>Юр-фильтр канала «{ch.title}»</b> (id={ch.id}): {state}\n\n"
+        f"⚖️ <b>Юр-фильтр канала «{html.escape(ch.title or '')}»</b> (id={ch.id}): {state}\n\n"
         f"Что отсеивает слой A:\n<pre>{SAFETY_LEGAL_RF}</pre>\n"
         f"Слой B+C (наркотики, мед.дозировки) активен всегда."
     )
@@ -81,7 +82,7 @@ async def cmd_setlegal(message: Message, command: CommandObject) -> None:
             lines = ["⚖️ <b>Юр-фильтр (слой A, RF-риски) по каналам:</b>\n"]
             for ch in chans:
                 state = "🟢 вкл" if ch.legal_rf_filter else "🔴 выкл"
-                lines.append(f"  {state} — <b>{ch.title[:40]}</b> (id={ch.id})")
+                lines.append(f"  {state} — <b>{html.escape((ch.title or '')[:40])}</b> (id={ch.id})")
             lines.append("\nУправление: /setlegal &lt;id&gt;")
             await message.answer("\n".join(lines))
             return
@@ -133,7 +134,7 @@ async def cb_legal_off_step2(callback: CallbackQuery) -> None:
         )
         await callback.answer("Отключён")
         await callback.message.edit_text(
-            f"🔴 Юр-фильтр канала «{ch.title}» отключён "
+            f"🔴 Юр-фильтр канала «{html.escape(ch.title or '')}» отключён "
             f"({ch.legal_optout_at:%d.%m.%Y %H:%M} UTC, зафиксировано). "
             f"Включить обратно: /setlegal {ch.id}")
 
@@ -154,7 +155,7 @@ async def cb_legal_on(callback: CallbackQuery) -> None:
                     channel_id, callback.from_user.id)
         await callback.answer("Включён")
         await callback.message.edit_text(
-            f"🟢 Юр-фильтр канала «{ch.title}» включён.")
+            f"🟢 Юр-фильтр канала «{html.escape(ch.title or '')}» включён.")
 
 
 @router.callback_query(F.data.startswith("legalkeep:"))
