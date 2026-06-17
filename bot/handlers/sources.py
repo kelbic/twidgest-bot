@@ -782,11 +782,35 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
         parts.append("  Последний пост: <i>пока не было</i>")
 
     if total_rejections > 0:
+        # Группируем сырые коды причин в понятные человеку категории
+        human: dict[str, int] = {}
+        for reason, cnt in rejections_by_reason.items():
+            r = str(reason)
+            if "low_interest" in r:
+                bucket = "не по теме канала (низкая AI-оценка)"
+            elif "оффтоп" in r:
+                bucket = "оффтоп по теме"
+            elif "реклама" in r:
+                bucket = "скрытая реклама"
+            elif "спекуляц" in r or "без источ" in r:
+                bucket = "недостоверное/без источника"
+            elif r.startswith("skip_viral") or "skip_token" in r or "skip_short" in r:
+                bucket = "AI-редактор счёл твит непригодным"
+            elif "наркотик" in r or "юр" in r or "legal" in r:
+                bucket = "юр-фильтр (запрещённое)"
+            elif "duplicate" in r or "дубл" in r:
+                bucket = "повтор темы"
+            else:
+                bucket = "прочее"
+            human[bucket] = human.get(bucket, 0) + cnt
         rej_str = ", ".join(
-            f"{cnt} <code>{html.escape(str(reason))}</code>"
-            for reason, cnt in sorted(rejections_by_reason.items(), key=lambda x: -x[1])
+            f"{cnt} {html.escape(b)}"
+            for b, cnt in sorted(human.items(), key=lambda x: -x[1])
         )
-        parts.append(f"  Отказов фильтра: <b>{total_rejections}</b> ({rej_str})")
+        parts.append(
+            f"  Отклонено фильтром: <b>{total_rejections}</b> "
+            f"(это норма — фильтр отсекает мусор и оффтоп)\n  → {rej_str}"
+        )
 
     # === Источники с детализацией ===
     parts.append("")
