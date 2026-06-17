@@ -808,7 +808,7 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
             for b, cnt in sorted(human.items(), key=lambda x: -x[1])
         )
         parts.append(
-            f"  Отклонено фильтром: <b>{total_rejections}</b> "
+            f"  Отклонено фильтром за 24ч: <b>{total_rejections}</b> "
             f"(это норма — фильтр отсекает мусор и оффтоп)\n  → {rej_str}"
         )
 
