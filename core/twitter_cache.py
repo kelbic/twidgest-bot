@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,6 +24,14 @@ logger = logging.getLogger(__name__)
 # Любой новый твит сбрасывает stale_count в 0.
 BASE_TTL_SECONDS = 1800     # 30 минут — для активных источников
 MAX_TTL_SECONDS = 21600     # 6 часов — потолок для совсем тихих
+
+# Кэп backoff для НЕДАВНО постивших источников: если последний твит моложе
+# ACTIVE_RECENCY_SECONDS, источник активен — TTL не выше _effective_ttl(STALE_CAP_ACTIVE).
+# STALE_CAP_ACTIVE=2 → потолок 2ч (1800*2^2=7200s) для активных. Ловит источники с
+# паузами 2-3ч между постами (опрос раз в 2ч вместо раздувания до 6ч), не раздувая
+# запросы к мёртвым (последний твит дни назад → кэп не применяется → backoff до 6ч).
+ACTIVE_RECENCY_SECONDS = 10800  # 3 часа — порог "аккаунт ещё активен"
+STALE_CAP_ACTIVE = 2            # потолок stale для активных → TTL макс 2ч
 
 def _effective_ttl(stale_count: int, base_ttl: int) -> int:
     """TTL с учётом backoff. stale_count=0 → base_ttl, дальше удвоение."""
@@ -88,6 +97,20 @@ class TwitterCache:
             else:
                 # Только дубликаты — источник тихий, увеличиваем интервал
                 new_stale = entry.stale_count + 1
+
+            # Кэп backoff по свежести: если аккаунт НЕДАВНО постил (последний твит
+            # моложе ACTIVE_RECENCY), он активен и скоро напишет ещё — не даём TTL
+            # раздуться выше STALE_CAP_ACTIVE, иначе пропустим его следующий пост.
+            # Реальный кейс: @bindureddy постит раз в 2-3ч, опрос раз в 30мин →
+            # между постами backoff рос до 6ч и замораживал источник. Мёртвые
+            # аккаунты (последний твит дни назад) не подпадают — backoff до 6ч.
+            # parsed_created_at — @property, БЕЗ скобок (вызов со скобками = TypeError).
+            if tweets:
+                newest_dt = max((tw.parsed_created_at for tw in tweets),
+                                default=datetime.utcnow() - timedelta(days=30))
+                newest_age = (datetime.utcnow() - newest_dt).total_seconds()
+                if newest_age < ACTIVE_RECENCY_SECONDS:
+                    new_stale = min(new_stale, STALE_CAP_ACTIVE)
 
             # Логируем изменение stale_count (только когда реально меняется)
             if entry is not None and new_stale != entry.stale_count:
