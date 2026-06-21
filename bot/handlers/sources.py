@@ -848,7 +848,13 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
                 status_text = "ни одного твита"
 
             src_prefix = "" if uname.startswith("vk:") else "@"
-            parts.append(f"  {icon} {src_prefix}{html.escape(uname or '')} — {status_text}")
+            # Источниковый порог интереса (если задан) — как в /sources,
+            # чтобы было видно, что источник душится жёстче канального
+            mi = getattr(src, "min_interest", None)
+            mi_str = f" · 🎯 порог {mi}" if mi is not None else ""
+            parts.append(
+                f"  {icon} {src_prefix}{html.escape(uname or '')}{mi_str} — {status_text}"
+            )
 
     # === Очередь и расписание ===
     parts.append("")
