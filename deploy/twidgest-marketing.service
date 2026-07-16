@@ -1,0 +1,47 @@
+# Маркетинг-скаут Twidgest — отдельный процесс, отдельный бот, отдельная БД.
+#
+# Установка (после того как MARKETING_BOT_TOKEN добавлен в .env):
+#   1. Создать выделенного пользователя:
+#        useradd --system --no-create-home --shell /usr/sbin/nologin twidgest-mkt
+#   2. ВАЖНО: прод-репо лежит в /root/twidgest-bot — non-root пользователь
+#      туда не попадёт (mode 700 на /root). Варианты:
+#        а) перенести репо в /opt/twidgest-bot (рекомендуется, поправив оба юнита);
+#        б) выдать доступ ACL'ями: setfacl -m u:twidgest-mkt:x /root &&
+#           setfacl -R -m u:twidgest-mkt:rX /root/twidgest-bot
+#      и дать право писать marketing.db (ReadWritePaths ниже + права на директорию:
+#        setfacl -m u:twidgest-mkt:rwx /root/twidgest-bot).
+#   3. cp deploy/twidgest-marketing.service /etc/systemd/system/
+#   4. systemctl daemon-reload && systemctl enable --now twidgest-marketing
+#
+# НЕ включать без MARKETING_BOT_TOKEN — процесс упадёт на старте (и так и
+# задуман: fail fast, Restart=always перезапустит после добавления токена).
+
+[Unit]
+Description=Twidgest Marketing Scout — лидогенератор и мини-CRM основателя
+After=network.target
+
+[Service]
+Type=simple
+User=twidgest-mkt
+WorkingDirectory=/root/twidgest-bot
+EnvironmentFile=/root/twidgest-bot/.env
+Environment="PATH=/root/twidgest-bot/venv/bin"
+ExecStart=/root/twidgest-bot/venv/bin/python -m marketing.main
+Restart=always
+RestartSec=10
+
+# Hardening: маркетинг-бот не должен уметь трогать систему и прод-файлы
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+# Писать можно только в директорию с marketing.db (WAL-файлы лежат рядом).
+# ВНИМАНИЕ: SQLite требует write на ДИРЕКТОРИЮ, поэтому RW на корень репо
+# формально открывает и прод-БД. Жёстче (рекомендуется):
+#   mkdir /var/lib/twidgest-marketing && chown twidgest-mkt: /var/lib/twidgest-marketing
+#   в .env: MARKETING_DB_PATH=/var/lib/twidgest-marketing/marketing.db
+#   здесь:  ReadWritePaths=/var/lib/twidgest-marketing
+ReadWritePaths=/root/twidgest-bot
+
+[Install]
+WantedBy=multi-user.target

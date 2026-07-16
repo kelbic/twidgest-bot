@@ -44,3 +44,6 @@ phase0_essayist.py
 twidgest.db
 twidgest.db-shm
 twidgest.db-wal
+marketing.db
+marketing.db-shm
+marketing.db-wal
