@@ -90,13 +90,21 @@ async def main() -> None:
     ])
     logging.info("Marketing bot @%s started. Polling...", me.username)
 
-    # Первый цикл сразу — чтобы не ждать час после рестарта
-    asyncio.create_task(run_enrich_cycle(bot, deps))
+    # Первый цикл сразу — чтобы не ждать час после рестарта. Ссылку держим:
+    # asyncio хранит task слабой ссылкой, без неё task может собрать GC;
+    # done-callback вытаскивает исключение, иначе оно потеряется молча.
+    startup_task = asyncio.create_task(run_enrich_cycle(bot, deps))
+    startup_task.add_done_callback(
+        lambda t: t.exception() and logging.error(
+            "startup enrich cycle failed", exc_info=t.exception()
+        )
+    )
 
     try:
         await dp.start_polling(bot, deps=deps)
     finally:
         scheduler.shutdown()
+        await deps.preview.close()
         await bot.session.close()
 
 

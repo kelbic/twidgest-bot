@@ -57,8 +57,3 @@ class MarketingLLM:
         if not await self._consume():
             return None
         return await self.client.suggest_sources(topic, count=count)
-
-    async def remaining_today(self) -> int:
-        async with session_maker()() as session:
-            used = await repo.get_counter(session, COUNTER_LLM)
-        return max(0, self.daily_cap - used)

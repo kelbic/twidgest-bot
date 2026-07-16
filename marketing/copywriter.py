@@ -71,8 +71,11 @@ def _fact_block(lead: Lead, now: datetime | None = None) -> str:
     return "\n".join(facts)
 
 
-def _validate_draft(text: str | None, max_len: int = DRAFT_MAX_LEN) -> str | None:
-    """Ссылки запрещены, длина в рамках. Невалидно → None."""
+def validate_draft(text: str | None, max_len: int = DRAFT_MAX_LEN) -> str | None:
+    """Ссылки запрещены, длина в рамках. Невалидно → None.
+
+    Единственная точка правила «без ссылок» — и для LLM-черновиков,
+    и для текста, вставленного админом руками (handlers.edit_draft)."""
     if not text:
         return None
     clean = text.strip().strip('"')
@@ -89,7 +92,7 @@ async def build_draft(llm: MarketingLLM, lead: Lead) -> str | None:
     user = _fact_block(lead)
     for attempt in (1, 2):
         raw = await llm.call(DRAFT_SYSTEM, user, max_tokens=600, temperature=0.5)
-        draft = _validate_draft(raw)
+        draft = validate_draft(raw)
         if draft:
             return draft
         if raw is None:
@@ -105,7 +108,7 @@ async def build_followup(llm: MarketingLLM, lead: Lead) -> str | None:
         + (lead.draft_text or "(текст не сохранился)")
     )
     raw = await llm.call(FOLLOWUP_SYSTEM, user, max_tokens=300, temperature=0.5)
-    return _validate_draft(raw, max_len=400)
+    return validate_draft(raw, max_len=400)
 
 
 async def rewrite_draft(
@@ -117,4 +120,4 @@ async def rewrite_draft(
         f"Факты для персонализации:\n{_fact_block(lead)}"
     )
     raw = await llm.call(REWRITE_SYSTEM, user, max_tokens=600, temperature=0.4)
-    return _validate_draft(raw)
+    return validate_draft(raw)

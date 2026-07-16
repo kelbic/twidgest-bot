@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from marketing.models import (
@@ -182,18 +183,35 @@ async def get_last_event(
     return result.scalar_one_or_none()
 
 
-async def events_in_week(session: AsyncSession) -> list[LeadEvent]:
-    week_ago = _utcnow() - timedelta(days=7)
+async def funnel_reached(session: AsyncSession, statuses: list[str]) -> dict[str, int]:
+    """Сколько РАЗНЫХ лидов когда-либо доходило до каждого статуса.
+
+    Считаем по журналу status_change, а не по текущим статусам: лид,
+    умерший после contacted, всё равно прошёл через contacted — иначе
+    конверсии в /stats врут (знаменатель тает по мере смертей)."""
     result = await session.execute(
-        select(LeadEvent).where(LeadEvent.created_at >= week_ago)
+        select(LeadEvent.lead_id, LeadEvent.payload)
+        .where(LeadEvent.event == "status_change")
     )
-    return list(result.scalars().all())
+    reached: dict[str, set[int]] = {s: set() for s in statuses}
+    for lead_id, payload in result.all():
+        try:
+            to_status = json.loads(payload or "{}").get("to")
+        except ValueError:
+            continue
+        if to_status in reached:
+            reached[to_status].add(lead_id)
+    return {s: len(ids) for s, ids in reached.items()}
 
 
 async def avg_response_hours(session: AsyncSession) -> float | None:
-    """Среднее время contacted → replied по событиям status_change."""
+    """Среднее время contacted → replied по событиям status_change (90 дней —
+    журнал растёт бесконечно, /stats не должен замедляться вместе с ним)."""
+    since = _utcnow() - timedelta(days=90)
     result = await session.execute(
-        select(LeadEvent).where(LeadEvent.event == "status_change").order_by(LeadEvent.id)
+        select(LeadEvent)
+        .where(LeadEvent.event == "status_change", LeadEvent.created_at >= since)
+        .order_by(LeadEvent.id)
     )
     contacted_at: dict[int, datetime] = {}
     deltas: list[float] = []
@@ -273,26 +291,29 @@ async def save_demo(
 async def try_consume(
     session: AsyncSession, name: str, cap: int, amount: int = 1
 ) -> bool:
-    """Атомарно потребляет `amount` из дневного капа. False = кап исчерпан."""
+    """Атомарно потребляет `amount` из дневного капа. False = кап исчерпан.
+
+    UPSERT + условный UPDATE одним стейтментом каждый: конкурентные корутины
+    (воркер и колбэк админа) не могут ни задвоить строку дня, ни оба пройти
+    проверку на последнем слоте.
+    """
     day = _today()
-    result = await session.execute(
-        select(DailyCounter).where(DailyCounter.day == day, DailyCounter.name == name)
-    )
-    counter = result.scalar_one_or_none()
-    if counter is None:
-        counter = DailyCounter(day=day, name=name, count=0)
-        session.add(counter)
-        await session.flush()
-    if counter.count + amount > cap:
-        await session.commit()
-        return False
     await session.execute(
+        sqlite_insert(DailyCounter)
+        .values(day=day, name=name, count=0)
+        .on_conflict_do_nothing(index_elements=["day", "name"])
+    )
+    result = await session.execute(
         update(DailyCounter)
-        .where(DailyCounter.id == counter.id)
+        .where(
+            DailyCounter.day == day,
+            DailyCounter.name == name,
+            DailyCounter.count + amount <= cap,
+        )
         .values(count=DailyCounter.count + amount)
     )
     await session.commit()
-    return True
+    return result.rowcount > 0
 
 
 async def get_counter(session: AsyncSession, name: str) -> int:

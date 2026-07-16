@@ -8,13 +8,13 @@ from __future__ import annotations
 import csv
 import html
 import io
-import json
 import logging
 import re
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -64,6 +64,25 @@ class EditStates(StatesGroup):
 
 def _esc(value: object) -> str:
     return html.escape(str(value or ""))
+
+
+async def _clear_buttons(callback: CallbackQuery) -> None:
+    """Убирает клавиатуру, не падая на старых карточках.
+
+    Телеграм отдаёт сообщения старше ~48ч как InaccessibleMessage —
+    у него нет edit_reply_markup (AttributeError), а сам edit может
+    вернуть TelegramBadRequest. Статус к этому моменту уже записан,
+    поэтому сбой скрытия кнопок не должен ронять колбэк."""
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except (AttributeError, TelegramBadRequest):
+        pass
+
+
+async def _send_plain(callback: CallbackQuery, text: str) -> None:
+    """Ответ админу текстом «как есть»: контент экранируется, потому что
+    parse_mode бота — HTML, а черновики — произвольная проза (бывает '<')."""
+    await callback.message.answer(html.escape(text))
 
 
 # --------------------------------------------------------------------------- #
@@ -153,6 +172,11 @@ async def cmd_import(message: Message, state: FSMContext) -> None:
 @router.message(ImportStates.waiting_list)
 async def import_list(message: Message, state: FSMContext) -> None:
     await state.clear()
+    # Стейт-хендлер зарегистрирован раньше большинства команд и в этом
+    # состоянии перехватил бы «/stats» как строку импорта — команды пропускаем
+    if (message.text or "").startswith("/"):
+        await message.answer("Импорт отменён (пришла команда). /import — начать заново.")
+        return
     lines = (message.text or "").splitlines()
     added, dupes, blocked, bad = [], [], [], []
     async with session_maker()() as session:
@@ -283,23 +307,23 @@ async def cmd_note(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
+    chain = ["contacted", "replied", "trial", "paid"]
     async with session_maker()() as session:
         counts = await repo.count_by_status(session)
         avg_hours = await repo.avg_response_hours(session)
+        # «Дошедшие» — по журналу событий, не по текущим остаткам в статусе:
+        # иначе проценты выходят >100% и тают по мере смертей лидов
+        reached = await repo.funnel_reached(session, chain)
     lines = ["<b>Воронка</b>"]
-    prev_count: int | None = None
+    prev_reached: int | None = None
     for s in FUNNEL_STATUSES:
         cnt = counts.get(s, 0)
         conv = ""
-        if prev_count and prev_count > 0 and s not in ("new",):
-            conv = f" ({cnt * 100 // prev_count}%)"
+        if s in reached:
+            if prev_reached and prev_reached > 0:
+                conv = f" (дошло {reached[s]}, {reached[s] * 100 // prev_reached}%)"
+            prev_reached = reached[s]
         lines.append(f"  {s}: {cnt}{conv}")
-        # Конверсия имеет смысл по цепочке contacted→replied→trial→paid;
-        # для верхней части воронки статусы транзитные, база — предыдущий шаг
-        if s in ("contacted", "replied", "trial", "paid"):
-            prev_count = cnt
-        else:
-            prev_count = None
     for s in ("dead", "optout"):
         if counts.get(s):
             lines.append(f"  {s}: {counts[s]}")
@@ -374,9 +398,14 @@ async def cb_approve(callback: CallbackQuery) -> None:
         await repo.set_status(session, lead, "approved", reason="approved by admin")
 
         # Финальный текст ОТДЕЛЬНЫМ чистым сообщением — удобно копировать
-        await callback.message.answer(lead.draft_text)
+        await _send_plain(callback, lead.draft_text)
         if lead.demo_text:
-            await callback.message.answer(lead.demo_text)
+            # Демо — валидный HTML-дайджест; если LLM всё же сломала разметку,
+            # не роняем approve, а шлём экранированным
+            try:
+                await callback.message.answer(lead.demo_text)
+            except TelegramBadRequest:
+                await _send_plain(callback, lead.demo_text)
         await callback.message.answer(
             f"⬆️ Текст для @{_esc(lead.channel_username)}"
             + (" + демо вторым сообщением" if lead.demo_text else " (демо нет)")
@@ -398,7 +427,7 @@ async def cb_sent(callback: CallbackQuery) -> None:
         lead.contacted_at = now
         lead.next_followup_at = now + FOLLOWUP_DELAY
         await repo.set_status(session, lead, "contacted", reason="admin sent message")
-    await callback.message.edit_reply_markup(reply_markup=None)
+    await _clear_buttons(callback)
     await callback.answer("Статус: contacted, фоллоу-ап через 4 дня")
 
 
@@ -414,7 +443,7 @@ async def cb_followup_sent(callback: CallbackQuery) -> None:
         lead.next_followup_at = datetime.utcnow() + FOLLOWUP_DELAY
         await repo.log_event(session, lead.id, "followup_sent")
         await session.commit()
-    await callback.message.edit_reply_markup(reply_markup=None)
+    await _clear_buttons(callback)
     await callback.answer("Ок. Снова тишина 4 дня → dead автоматически.")
 
 
@@ -428,7 +457,7 @@ async def cb_skip(callback: CallbackQuery) -> None:
             return
         lead.next_followup_at = None
         await repo.set_status(session, lead, "dead", reason="skipped by admin")
-    await callback.message.edit_reply_markup(reply_markup=None)
+    await _clear_buttons(callback)
     await callback.answer("Скип → dead")
 
 
@@ -446,7 +475,7 @@ async def cb_blacklist(callback: CallbackQuery) -> None:
             session, lead.channel_username, reason="optout/manual", commit=False
         )
         await repo.set_status(session, lead, "optout", reason="blacklisted by admin")
-    await callback.message.edit_reply_markup(reply_markup=None)
+    await _clear_buttons(callback)
     await callback.answer("В blacklist навсегда")
 
 
@@ -520,8 +549,8 @@ async def edit_draft(message: Message, state: FSMContext, deps: Deps) -> None:
     await state.clear()
     lead_id = data.get("lead_id")
     text = (message.text or "").strip()
-    if not text:
-        await message.answer("Пустое сообщение — правки отменены.")
+    if not text or text.startswith("/"):
+        await message.answer("Правки отменены.")
         return
     async with session_maker()() as session:
         lead = await repo.get_lead(session, lead_id)
@@ -529,11 +558,16 @@ async def edit_draft(message: Message, state: FSMContext, deps: Deps) -> None:
             await message.answer("Лид пропал.")
             return
         if len(text) >= 200:
-            # Похоже на готовый текст — берём как есть (но ссылки запрещены)
-            if re.search(r"https?://|t\.me/", text, re.I):
-                await message.answer("⚠️ В первом сообщении нельзя ссылки (антиспам TG). Не сохранил.")
+            # Похоже на готовый текст — та же валидация, что у LLM-черновиков
+            # (ссылки, длина): правило одно, точка проверки одна
+            validated = copywriter.validate_draft(text)
+            if not validated:
+                await message.answer(
+                    "⚠️ Не сохранил: ссылки в первом сообщении запрещены "
+                    f"(антиспам TG), длина — до {copywriter.DRAFT_MAX_LEN} знаков."
+                )
                 return
-            lead.draft_text = text
+            lead.draft_text = validated
             await repo.log_event(session, lead.id, "draft_manual_edit")
             await session.commit()
         else:

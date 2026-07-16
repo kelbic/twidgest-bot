@@ -28,8 +28,6 @@ REQUEST_TIMEOUT = 10
 CACHE_TTL_SECONDS = 24 * 3600
 MIN_REQUEST_INTERVAL = 1.0  # секунд между запросами к t.me
 
-USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{3,31}$")
-
 _MSG_MARKER = "tgme_widget_message"
 _TIME_RE = re.compile(r'<time datetime="([^"]+)"')
 _TITLE_RE = re.compile(
@@ -51,7 +49,8 @@ class ChannelPreview:
     """Что удалось вытащить из t.me/s/<username>."""
 
     username: str
-    available: bool = False           # False = приватный/без превью/ошибка
+    available: bool = False           # False = приватный канал / без превью
+    fetch_failed: bool = False        # True = сеть/5xx: НЕ «нет превью», можно ретраить
     title: str | None = None
     description: str | None = None
     subscribers: int | None = None
@@ -202,20 +201,42 @@ def compute_metrics(
 
 
 class TelegramPreviewClient:
-    """HTTP-клиент превью: throttle 1 rps, кэш 24ч, таймаут 10с, один ретрай."""
+    """HTTP-клиент превью: throttle 1 rps, кэш 24ч, таймаут 10с, один ретрай.
+
+    Кэшируются только УСПЕШНЫЕ ответы: транзиентный таймаут/5xx не должен на
+    сутки приклеить каналу ярлык «без превью» — такой лид остаётся в new и
+    ретраится следующим циклом.
+    """
 
     def __init__(self) -> None:
-        self._cache: dict[str, tuple[float, str | None]] = {}
+        self._cache: dict[str, tuple[float, str]] = {}
         self._lock = asyncio.Lock()
         self._last_request = 0.0
+        self._session: aiohttp.ClientSession | None = None
 
-    async def fetch_html(self, username: str) -> str | None:
+    def _http(self) -> aiohttp.ClientSession:
+        # Одна долгоживущая сессия: keep-alive к t.me вместо TLS-рукопожатия
+        # на каждый лид (fetch'и и так сериализованы _lock'ом)
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                headers={"User-Agent": USER_AGENT},
+                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+            )
+        return self._session
+
+    async def close(self) -> None:
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+
+    async def fetch_html(self, username: str) -> tuple[str | None, bool]:
+        """(html | None, fetch_failed). failed=True — сеть/5xx, не кэшируется."""
         username = username.lstrip("@").lower()
         cached = self._cache.get(username)
         if cached and time.monotonic() - cached[0] < CACHE_TTL_SECONDS:
-            return cached[1]
+            return cached[1], False
 
         html_text: str | None = None
+        failed = False
         async with self._lock:
             for attempt in (1, 2):
                 wait = MIN_REQUEST_INTERVAL - (time.monotonic() - self._last_request)
@@ -223,34 +244,37 @@ class TelegramPreviewClient:
                     await asyncio.sleep(wait)
                 self._last_request = time.monotonic()
                 try:
-                    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-                    async with aiohttp.ClientSession(
-                        headers={"User-Agent": USER_AGENT}, timeout=timeout
-                    ) as session:
-                        async with session.get(
-                            PREVIEW_URL.format(username=username),
-                            allow_redirects=True,
-                        ) as resp:
-                            if resp.status == 200:
-                                html_text = await resp.text()
-                                break
-                            logger.info(
-                                "t.me/s/%s → HTTP %d (attempt %d)",
-                                username, resp.status, attempt,
-                            )
-                            if resp.status < 500:
-                                break  # 4xx ретраить бессмысленно
+                    async with self._http().get(
+                        PREVIEW_URL.format(username=username),
+                        allow_redirects=True,
+                    ) as resp:
+                        if resp.status == 200:
+                            html_text = await resp.text()
+                            failed = False
+                            break
+                        logger.info(
+                            "t.me/s/%s → HTTP %d (attempt %d)",
+                            username, resp.status, attempt,
+                        )
+                        if resp.status < 500:
+                            failed = False
+                            break  # 4xx — окончательный ответ, ретраить бессмысленно
+                        failed = True
                 except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                    failed = True
                     logger.info(
                         "t.me/s/%s fetch failed (attempt %d): %s",
                         username, attempt, exc,
                     )
 
-        self._cache[username] = (time.monotonic(), html_text)
-        return html_text
+        if html_text is not None:
+            self._cache[username] = (time.monotonic(), html_text)
+        return html_text, failed
 
     async def fetch_preview(self, username: str) -> ChannelPreview:
-        html_text = await self.fetch_html(username)
+        html_text, failed = await self.fetch_html(username)
         if not html_text:
-            return ChannelPreview(username=username.lstrip("@").lower())
+            return ChannelPreview(
+                username=username.lstrip("@").lower(), fetch_failed=failed
+            )
         return parse_preview_html(html_text, username)

@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 from dataclasses import dataclass
@@ -35,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 ENRICH_BATCH = 5
 COUNTER_CARDS = "cards_pushed"
-FOLLOWUP_AFTER_DAYS = 4
 MAX_FOLLOWUPS = 1
 
 
@@ -107,6 +107,14 @@ async def _enrich_lead(deps: Deps, lead_id: int) -> dict | None:
             lead.subscribers = preview.subscribers
         if preview.contact:
             lead.contact = preview.contact
+
+        if preview.fetch_failed:
+            # Сеть/5xx — это НЕ «нет превью»: лид остаётся в new и ретраится
+            # следующим циклом, ярлык «оцени руками» не клеим.
+            await repo.log_event(session, lead.id, "enrich_fetch_failed", None)
+            await session.commit()
+            logger.info("enrich: @%s — fetch failed, will retry", lead.channel_username)
+            return None
 
         if not preview.available:
             # Приватный / без превью: пустые метрики, пометка «оцени руками».
@@ -197,11 +205,11 @@ async def push_cards(bot: Bot, deps: Deps) -> int:
         lead_ids = [lead.id for lead in pending]
 
     for lead_id in lead_ids:
+        # Кап проверяем ДО отправки, а списываем ПОСЛЕ успешной: упавший
+        # send_message не должен ни сжечь слот, ни потерять карточку.
         async with session_maker()() as session:
-            allowed = await repo.try_consume(
-                session, COUNTER_CARDS, deps.cfg.daily_cards_cap
-            )
-        if not allowed:
+            used = await repo.get_counter(session, COUNTER_CARDS)
+        if used >= deps.cfg.daily_cards_cap:
             logger.info("cards: daily cap reached, rest stays in /queue")
             break
         try:
@@ -209,11 +217,18 @@ async def push_cards(bot: Bot, deps: Deps) -> int:
             pushed += 1
         except Exception:
             logger.exception("cards: failed to push lead %d", lead_id)
+            continue
+        async with session_maker()() as session:
+            await repo.try_consume(session, COUNTER_CARDS, deps.cfg.daily_cards_cap)
     return pushed
 
 
 async def send_card(bot: Bot, deps: Deps, lead_id: int, mark_pushed: bool = True) -> None:
-    """Готовит черновик (если нет) и шлёт карточку админу."""
+    """Готовит черновик (если нет) и шлёт карточку админу.
+
+    card_pushed_at ставится только ПОСЛЕ успешной отправки: иначе сетевой
+    сбой Telegram навсегда выкидывал бы лид из очереди авто-пуша.
+    """
     async with session_maker()() as session:
         lead = await repo.get_lead(session, lead_id)
         if lead is None:
@@ -229,16 +244,22 @@ async def send_card(bot: Bot, deps: Deps, lead_id: int, mark_pushed: bool = True
             cached = await repo.get_fresh_demo(session, normalize_niche(lead.niche))
             if cached:
                 lead.demo_text = cached.demo_text
+        await session.commit()
+
+    await bot.send_message(
+        deps.cfg.admin_user_id,
+        cards.build_card(lead),
+        reply_markup=cards.card_keyboard(lead),
+    )
+
+    async with session_maker()() as session:
+        lead = await repo.get_lead(session, lead_id)
+        if lead is None:
+            return
         if mark_pushed:
             lead.card_pushed_at = datetime.utcnow()
         await repo.log_event(session, lead.id, "card_pushed")
         await session.commit()
-
-        await bot.send_message(
-            deps.cfg.admin_user_id,
-            cards.build_card(lead),
-            reply_markup=cards.card_keyboard(lead),
-        )
 
 
 # --------------------------------------------------------------------------- #
@@ -274,6 +295,11 @@ async def run_crm_cycle(bot: Bot, deps: Deps) -> None:
             logger.exception("crm: followup for lead %d failed", lead_id)
 
     try:
+        await _nudge_stale_approved(bot, deps)
+    except Exception:
+        logger.exception("crm: approved-nudge failed")
+
+    try:
         await _send_daily_summary(bot, deps)
     except Exception:
         logger.exception("crm: summary failed")
@@ -284,22 +310,58 @@ async def _send_followup_card(bot: Bot, deps: Deps, lead_id: int) -> None:
         lead = await repo.get_lead(session, lead_id)
         if lead is None:
             return
-        followup = await copywriter.build_followup(deps.llm, lead)
-        await repo.log_event(
-            session, lead.id, "followup_drafted",
-            json.dumps({"text": followup}, ensure_ascii=False) if followup else None,
-        )
+        # Черновик фоллоу-апа генерируем один раз: если админ игнорирует
+        # напоминание, повторные дни переиспользуют текст из журнала,
+        # а не жгут LLM-кап заново.
+        followup: str | None = None
+        prev = await repo.get_last_event(session, lead.id, "followup_drafted")
+        if prev and prev.payload:
+            try:
+                followup = json.loads(prev.payload).get("text") or None
+            except ValueError:
+                followup = None
+        if not followup:
+            followup = await copywriter.build_followup(deps.llm, lead)
+            await repo.log_event(
+                session, lead.id, "followup_drafted",
+                json.dumps({"text": followup}, ensure_ascii=False) if followup else None,
+            )
+        # Напоминание не отправлено-и-забыто: пока админ не нажал кнопку,
+        # переносим срок на завтра (сегодняшняя карточка уже ушла)
+        lead.next_followup_at = datetime.utcnow() + timedelta(days=1)
         await session.commit()
 
         text = (
             f"⏰ Пора фоллоу-апить @{lead.channel_username} "
             f"(первое сообщение {_fmt_days(lead.contacted_at)})\n\n"
-            f"📝 Черновик фоллоу-апа:\n{followup or '(LLM не собрала — напиши руками)'}"
+            f"📝 Черновик фоллоу-апа:\n"
+            f"{html.escape(followup) if followup else '(LLM не собрала — напиши руками)'}"
         )
         await bot.send_message(
             deps.cfg.admin_user_id, text,
             reply_markup=cards.followup_keyboard(lead.id),
         )
+
+
+async def _nudge_stale_approved(bot: Bot, deps: Deps) -> None:
+    """'approved' — не терминальный статус: одобрил, но не отметил 📤.
+
+    Без напоминания такой лид выпадал бы из воронки навсегда (его не видят
+    ни фоллоу-апы, ни очередь карточек).
+    """
+    async with session_maker()() as session:
+        stale = await repo.get_leads_by_status(session, "approved", limit=20)
+        stale_info = [(lead.id, lead.channel_username) for lead in stale]
+    for lead_id, username in stale_info:
+        try:
+            await bot.send_message(
+                deps.cfg.admin_user_id,
+                f"⏳ @{username} одобрен, но не отмечен отправленным. "
+                f"Отправил — жми кнопку; передумал — ❌ в /lead {lead_id}.",
+                reply_markup=cards.sent_keyboard(lead_id),
+            )
+        except Exception:
+            logger.exception("crm: approved-nudge for lead %d failed", lead_id)
 
 
 def _fmt_days(dt: datetime | None) -> str:
@@ -310,10 +372,13 @@ def _fmt_days(dt: datetime | None) -> str:
 
 
 async def _send_daily_summary(bot: Bot, deps: Deps) -> None:
+    from marketing.demo import COUNTER_DEMO
+    from marketing.llm import COUNTER_LLM
+
     async with session_maker()() as session:
         counts = await repo.count_by_status(session)
-        llm_used = await repo.get_counter(session, "llm_calls")
-        demo_used = await repo.get_counter(session, "demo_generations")
+        llm_used = await repo.get_counter(session, COUNTER_LLM)
+        demo_used = await repo.get_counter(session, COUNTER_DEMO)
     queue = counts.get("qualified", 0)
     fresh = counts.get("new", 0)
     if not counts:

@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 
@@ -91,9 +90,11 @@ async def get_or_create_demo(
     if cached is not None:
         return cached.demo_text, "из кэша по нише"
 
+    # Кап проверяем ДО дорогих шагов, а списываем только когда подбор
+    # источников удался: сбой LLM не должен сжигать демо-слот впустую.
     async with session_maker()() as session:
-        allowed = await repo.try_consume(session, COUNTER_DEMO, daily_demo_cap)
-    if not allowed:
+        used = await repo.get_counter(session, COUNTER_DEMO)
+    if used >= daily_demo_cap:
         return None, f"дневной кап демо ({daily_demo_cap}) исчерпан — попробуй завтра"
 
     suggested = await llm.suggest_sources(niche, count=SUGGEST_COUNT)
@@ -104,12 +105,17 @@ async def get_or_create_demo(
     candidates: list[tuple[str, str]] = []
     for s in suggested:
         u = (s.get("username") or "").lstrip("@").strip().lower()
-        if not u or u in seen or not _USERNAME_RE.fullmatch(u):
+        if not u or u in seen or u.startswith("vk:") or not _USERNAME_RE.fullmatch(u):
             continue
         seen.add(u)
         candidates.append((u, (s.get("reason") or "").strip()))
     if not candidates:
         return None, "кандидаты-источники не прошли валидацию"
+
+    async with session_maker()() as session:
+        allowed = await repo.try_consume(session, COUNTER_DEMO, daily_demo_cap)
+    if not allowed:
+        return None, f"дневной кап демо ({daily_demo_cap}) исчерпан — попробуй завтра"
 
     stats = await prevalidate_candidates(candidates, MIN_LIKES, MIN_RETWEETS, cache)
     top = stats[:TOP_AUTHORS]
