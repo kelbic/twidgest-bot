@@ -6,6 +6,8 @@
 1. Оплата кончается через 12-36ч  -> напоминание с кнопкой продления.
 2. Триал кончается через 24-48ч   -> «чек» 5-го дня: посты за триал,
    оценка сэкономленного времени, кнопка оплаты. Конвертящее сообщение.
+2b. Триал кончается в ближайшие 24ч -> «последний день»: короткий дожим
+    с итогом за весь триал. Последнее касание до тишины.
 3. Канал замолк за последние 24ч  -> уведомление + кнопка реактивации.
 
 Админские каналы не трогаем (channel_status == 'admin').
@@ -20,6 +22,7 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, func, select
 
+from config import Config
 from core.plan import PRICE_STARS, TRIAL_DAYS, _ADMIN_ID, channel_status
 from db.models import Channel, PostLog
 from db.session import session_maker
@@ -35,12 +38,28 @@ def _hours_saved(posts: int) -> int:
 
 
 def _pay_kb(channel_id: int, verb: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
+    """Кнопки оплаты: рубли (если провайдер подключён) + Stars.
+
+    Config() читается на каждый вызов: токен появляется в .env без деплоя,
+    и дожимы должны подхватить его сразу после рестарта, без правок кода.
+    """
+    cfg = Config()
+    rows: list[list[InlineKeyboardButton]] = []
+    if cfg.payment_provider_token:
+        rows.append([InlineKeyboardButton(
+            text=f"💳 {verb} — {cfg.price_rub} ₽ / 30 дней",
+            callback_data=f"payrub:{channel_id}",
+        )])
+        rows.append([InlineKeyboardButton(
+            text=f"⭐ Или {PRICE_STARS} Stars",
+            callback_data=f"payslot:{channel_id}",
+        )])
+    else:
+        rows.append([InlineKeyboardButton(
             text=f"💳 {verb} — {PRICE_STARS}⭐ / 30 дней",
             callback_data=f"payslot:{channel_id}",
-        )
-    ]])
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _posts_since(session, channel_id: int, since: datetime) -> int:
@@ -67,7 +86,7 @@ ARCHIVE_AFTER_DAYS = 7  # через сколько дней неактивно�
 async def run_expiry_check(bot: Bot) -> None:
     logger.info("=== Expiry check started (slot model) ===")
     now = datetime.utcnow()
-    reminded = trial_checked = silenced = archived = 0
+    reminded = trial_checked = last_day = silenced = archived = 0
 
     async with session_maker()() as session:
         result = await session.execute(
@@ -115,6 +134,38 @@ async def run_expiry_check(bot: Bot) -> None:
                 )
                 trial_checked += ok
 
+            # 2b) Последний день триала (осталось <24ч) — финальное касание.
+            #     Уже оплаченным не шлём: триал-дата может остаться в будущем
+            #     у канала, оплаченного досрочно.
+            elif (
+                ch.trial_until
+                and now < ch.trial_until <= now + timedelta(hours=24)
+                and not (ch.paid_until and ch.paid_until > now)
+            ):
+                trial_start = ch.trial_until - timedelta(days=TRIAL_DAYS)
+                posts = await _posts_since(session, ch.id, trial_start)
+                if posts > 0:
+                    body = (
+                        f"Итог триала: <b>{posts} постов</b> без твоего участия "
+                        f"(~{_hours_saved(posts)} ч ручной работы).\n\n"
+                        f"Оплата сейчас — и канал не замолчит ни на минуту: "
+                        f"30 дней добавятся к дате окончания триала."
+                    )
+                else:
+                    body = (
+                        "Канал так и не опубликовал ни одного поста — если "
+                        "что-то не получилось с привязкой, просто перешли мне "
+                        "любое сообщение из канала или напиши /help."
+                    )
+                ok = await _safe_send(
+                    bot, ch.user_id,
+                    f"⏳ Сегодня последний день триала канала "
+                    f"<b>«{html.escape(ch.title or '')}»</b> "
+                    f"(до {ch.trial_until:%H:%M} UTC).\n\n" + body,
+                    _pay_kb(ch.id, "Оплатить"),
+                )
+                last_day += ok
+
             # 3) Замолк за последние 24ч
             else:
                 ends = [d for d in (ch.paid_until, ch.trial_until) if d]
@@ -149,7 +200,7 @@ async def run_expiry_check(bot: Bot) -> None:
         await session.commit()
 
     logger.info(
-        "=== Expiry check done. Reminded: %d, trial-checks: %d, silenced: %d, "
-        "archived: %d ===",
-        reminded, trial_checked, silenced, archived,
+        "=== Expiry check done. Reminded: %d, trial-checks: %d, last-day: %d, "
+        "silenced: %d, archived: %d ===",
+        reminded, trial_checked, last_day, silenced, archived,
     )
