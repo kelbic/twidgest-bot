@@ -4,15 +4,17 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Router
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
+from config import Config
 from db.repositories.admin import (
     get_all_user_ids,
+    get_funnel,
     get_global_stats,
     get_user_full,
 )
@@ -35,6 +37,7 @@ HELP_TEXT = (
     "/admin notify USER_ID TEXT - отправить личное сообщение юзеру\n"
     "/admin setfilter CHANNEL_ID PRESET - сменить filter_preset любого канала\n"
     "/admin stats - общая статистика\n"
+    "/admin funnel [DAYS|all] - воронка регистрация→оплата (default 30 дн)\n"
     "/admin broadcast TEXT - рассылка всем\n"
     "/admin addsource CHANNEL_ID @user|vk:domain - добавить источник любому каналу\n"
     "/admin removesource CHANNEL_ID @user|vk:domain - удалить источник\n"
@@ -60,6 +63,8 @@ async def cmd_admin(message: Message, command: CommandObject) -> None:
         await _admin_user(message, rest)
     elif sub == "stats":
         await _admin_stats(message)
+    elif sub == "funnel":
+        await _admin_funnel(message, rest)
     elif sub == "broadcast":
         await _admin_broadcast(message, rest)
     elif sub == "channels":
@@ -197,6 +202,47 @@ async def _admin_user(message: Message, args: list) -> None:
         f"Sources ({len(user.sources)}/{limits.max_sources}):\n{sources_list}\n\n"
         f"Targets ({len(user.targets)}/{limits.max_targets}):\n{targets_list}"
     )
+
+
+_FUNNEL_LABELS = (
+    ("registered", "Зарегистрировались"),
+    ("created_channel", "Создали канал"),
+    ("bound_channel", "Привязали канал"),
+    ("got_posts", "Получили ≥1 пост"),
+    ("paid", "Оплатили"),
+)
+
+
+async def _admin_funnel(message: Message, args: list) -> None:
+    """Воронка регистрация→оплата. /admin funnel [days|all], default 30."""
+    days: int | None = 30
+    if args:
+        raw = args[0].lower()
+        if raw in ("all", "0", "всё", "все"):
+            days = None
+        else:
+            try:
+                days = max(1, int(raw))
+            except ValueError:
+                await message.answer("Usage: /admin funnel [DAYS|all]")
+                return
+
+    since = datetime.utcnow() - timedelta(days=days) if days else None
+    async with session_maker()() as session:
+        stages = await get_funnel(
+            session, since, exclude_user_id=Config().admin_user_id
+        )
+
+    period = f"регистрации за {days} дн" if days else "за всё время"
+    lines = [f"📉 Воронка ({period}, без админа)\n"]
+    base = stages["registered"]
+    for key, label in _FUNNEL_LABELS:
+        n = stages[key]
+        pct = f"  ({n * 100 // base}%)" if base and key != "registered" else ""
+        lines.append(f"{label}: {n}{pct}")
+    if base == 0:
+        lines.append("\nКогорта пустая — некому конвертироваться.")
+    await message.answer("\n".join(lines))
 
 
 async def _admin_stats(message: Message) -> None:
