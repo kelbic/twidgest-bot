@@ -1,3 +1,3 @@
-title: TwidgestBot
-description: Multi-tenant Telegram SaaS for X (Twitter) content curation
+title: "Twidgest — Telegram-канал на автопилоте"
+description: "Бот сам ведёт тематический Telegram-канал — посты из X (Twitter) и VK, AI-фильтры, публикация по твоему расписанию. Триал 7 дней без карты."
 theme: jekyll-theme-minimal
