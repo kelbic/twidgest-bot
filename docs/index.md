@@ -78,6 +78,31 @@ AI-редактором, переводит на русский и публик�
 </div>
 </div>
 
+<div class="section" id="showcase">
+<div class="eyebrow">Живые примеры</div>
+<h2>Эти каналы бот ведёт прямо сейчас</h2>
+<p class="section-sub">Не мокапы: настоящие каналы, которые Twidgest ведёт сам —
+подбор постов, фильтрация, перевод и публикация без участия человека.
+Зайди и посмотри ленту.</p>
+<div class="showcase-grid">
+
+<div class="showcase-card">
+<div class="tg-head"><div class="tg-ava">🌌</div><div><b>Космос за 5 минут</b><span>@newsaroundthecircle</span></div></div>
+<p>Запуски, телескопы, туманности и новости с МКС — виральное из X,
+отобранное AI-редактором и переведённое на русский.</p>
+<a class="cta-btn secondary btn-sm" href="https://t.me/newsaroundthecircle">Открыть канал →</a>
+</div>
+
+<div class="showcase-card">
+<div class="tg-head"><div class="tg-ava">🤖</div><div><b>AI за 5 минут</b><span>@ai_digest_5min</span></div></div>
+<p>Релизы моделей, исследования и индустрия AI — лента и вечерние
+дайджесты, которые собирает сам бот.</p>
+<a class="cta-btn secondary btn-sm" href="https://t.me/ai_digest_5min">Открыть канал →</a>
+</div>
+
+</div>
+</div>
+
 <div class="section" id="features">
 <div class="eyebrow">Возможности</div>
 <h2>Что внутри</h2>

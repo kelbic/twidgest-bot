@@ -214,6 +214,19 @@ code {
 .cmd-card p { margin: 0; color: var(--muted); }
 .cmd-card code { display: inline-block; margin: 3px 0; }
 
+/* Витрины */
+.showcase-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px; margin-top: 30px; max-width: 800px;
+}
+.showcase-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 24px; transition: transform .15s ease, border-color .15s ease;
+}
+.showcase-card:hover { transform: translateY(-3px); border-color: rgba(42, 171, 238, .4); }
+.showcase-card p { color: var(--muted); font-size: .95rem; }
+.btn-sm { padding: 9px 20px; font-size: .95rem; margin: 12px 0 0; }
+
 /* Essayist */
 .essayist-wrap {
   background: linear-gradient(160deg, rgba(135, 116, 225, .16), rgba(42, 171, 238, .07));
@@ -287,6 +300,7 @@ footer a { color: #93a7c9; }
     <a class="logo" href="/"><span class="bolt">⚡</span>Twidgest</a>
     <div class="nav-links">
       <a href="#how-it-works">Как работает</a>
+      <a href="#showcase">Примеры</a>
       <a href="#features">Возможности</a>
       <a href="#essayist">Essayist</a>
       <a href="#pricing">Тарифы</a>
