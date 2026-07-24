@@ -7,7 +7,9 @@
 Три уровня проверки кандидата:
 1. ФОРМА, в коде (prevalidate_candidates, переиспользуется в
    /createchannel ai): доля текстовых твитов, активность (< 21 дня тишины),
-   частота постинга, пороги engagement канала.
+   частота постинга (< MIN_TWEETS_PER_WEEK — выпадает: популярный, но редко
+   пишущий автор оставляет канал молчать), пороги engagement канала и
+   минимальная отдача (est_posts_per_week >= MIN_EST_POSTS_PER_WEEK).
 2. ТЕМА, один батч-вызов LLM (apply_topic_relevance): какая доля реальных
    твитов кандидата относится к теме канала. Закрывает кейс «Илон Маск»:
    форма идеальна, 99 тв/нед, но про тему канала — малая доля.
@@ -43,8 +45,14 @@ MIN_PASSING = 2
 MAX_SILENCE_DAYS = 21
 # Минимальная доля твитов ПО ТЕМЕ канала (LLM-оценка); ниже — кандидат выпадает
 MIN_TOPIC_SHARE = 0.4
+# Жёсткий гейт активности: реже этого — кандидат выпадает. Популярный, но
+# редко пишущий автор = молчащий канал; известность не компенсирует тишину.
+MIN_TWEETS_PER_WEEK = 3.0
+# Минимальная отдача каналу (постов/нед, прошедших фильтры; после LLM-оценки
+# темы — по теме). Ниже — кандидат выпадает: канал он не прокормит.
+MIN_EST_POSTS_PER_WEEK = 1.0
 # Частота ниже этой помечается «⚠️ редко» в карточке (но не отсеивается)
-RARE_TWEETS_PER_WEEK = 3.0
+RARE_TWEETS_PER_WEEK = 5.0
 # Сколько лучших кандидатов показываем владельцу
 TOP_N = 5
 # Параллельность fetch'ей при превалидации
@@ -146,6 +154,13 @@ async def prevalidate_candidates(
 
         span_days = max((newest - oldest).total_seconds() / 86400.0, 0.05)
         tweets_per_week = min((len(tweets) - 1) / span_days * 7.0, 99.0)
+        if tweets_per_week < MIN_TWEETS_PER_WEEK:
+            logger.info(
+                "scout: @%s dropped — %.1f tweets/week (popular-but-quiet, "
+                "channel would starve)",
+                username, tweets_per_week,
+            )
+            return
 
         texty = [
             t for t in tweets
@@ -174,6 +189,13 @@ async def prevalidate_candidates(
         likes_sorted = sorted(t.likes for t in texty)
         median_likes = likes_sorted[len(likes_sorted) // 2]
         est_posts_per_week = passing / len(tweets) * tweets_per_week
+        if est_posts_per_week < MIN_EST_POSTS_PER_WEEK:
+            logger.info(
+                "scout: @%s dropped — est yield %.1f posts/week < %.1f "
+                "(won't feed the channel)",
+                username, est_posts_per_week, MIN_EST_POSTS_PER_WEEK,
+            )
+            return
 
         samples = [
             t.text.strip()[:TOPIC_SAMPLE_CHARS]
@@ -262,6 +284,12 @@ async def apply_topic_relevance(
             continue
         c.topic_share = share
         c.est_posts_per_week = c.est_posts_per_week * share
+        if c.est_posts_per_week < MIN_EST_POSTS_PER_WEEK:
+            logger.info(
+                "scout: @%s dropped — on-topic yield %.1f posts/week < %.1f",
+                c.username, c.est_posts_per_week, MIN_EST_POSTS_PER_WEEK,
+            )
+            continue
         kept.append(c)
 
     kept.sort(key=lambda c: (c.est_posts_per_week, c.median_likes), reverse=True)
