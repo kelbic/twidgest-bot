@@ -62,6 +62,7 @@ HELP = """\
 /scout &lt;id&gt; — AI-скаут: подберёт новые источники и проверит их по реальным твитам
 /setthreshold &lt;id&gt; likes=N retweets=N — порог виральности
 /regenerate &lt;id&gt; — перегенерить все источники канала через AI
+/setinterval &lt;id&gt; — как часто публиковать (не чаще N раз в час, кнопками)
 /status &lt;id&gt; — детальная статистика канала
 /deletechannel &lt;id&gt; — удалить канал
 /bind &lt;chat_id&gt; &lt;channel_id&gt; — вручную привязать чат

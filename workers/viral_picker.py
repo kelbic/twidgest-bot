@@ -43,8 +43,32 @@ _cfg_unsplash = Config()
 TOP_CANDIDATES_TO_TRY = 5
 # Минимальное engagement, чтобы вообще рассматривать твит как single
 MIN_LIKES_FOR_SINGLE = 100
-# Pacing — минимальный интервал между single-постами в одном канале
-SINGLE_POST_PACING_MINUTES = 30  # для теста, в проде поднять
+# Дефолт пейсинга single-постов (минут) — совпадает с default колонки
+# Channel.single_interval_minutes; владелец меняет через /setinterval
+DEFAULT_SINGLE_INTERVAL_MIN = 30
+# Активация: первые 24ч жизни канала ускоряем, чтобы юзер быстро увидел ленту
+ACTIVATION_INTERVAL_MIN = 15
+
+
+def pacing_minutes(channel, now: datetime | None = None) -> int:
+    """Минимум минут между single-постами канала.
+
+    Настройка владельца, ниже floor тарифа не опускается. Первые 24ч жизни
+    канала — активация (15 мин), но только пока владелец не менял настройку:
+    явный выбор «реже» уважаем и в первый день.
+    """
+    from core.plan import single_floor_minutes
+
+    now = now or datetime.utcnow()
+    setting = channel.single_interval_minutes or DEFAULT_SINGLE_INTERVAL_MIN
+    floor = single_floor_minutes(channel)
+    if (
+        setting == DEFAULT_SINGLE_INTERVAL_MIN
+        and channel.created_at is not None
+        and now - channel.created_at < timedelta(hours=24)
+    ):
+        return max(ACTIVATION_INTERVAL_MIN, floor)
+    return max(setting, floor)
 
 
 async def _get_hybrid_channels(session: AsyncSession) -> list[Channel]:
@@ -166,20 +190,14 @@ async def _process_hybrid_channel(
             "viral_picker: processing channel %d (%s)", channel.id, channel.title
         )
 
-        # Pacing — для новых каналов (<24ч) уменьшаем интервал
-        # чтобы юзер быстро увидел результат продукта
         last_single = await _last_single_post_time(session, channel.id)
         now = datetime.utcnow()
-        channel_age = now - channel.created_at
-        if channel_age < timedelta(hours=24):
-            pacing_minutes = 15  # активация: до 4 виральных в час
-        else:
-            pacing_minutes = SINGLE_POST_PACING_MINUTES  # 30 мин (default)
+        pacing = pacing_minutes(channel, now)
 
-        if last_single and (now - last_single) < timedelta(minutes=pacing_minutes):
+        if last_single and (now - last_single) < timedelta(minutes=pacing):
             logger.info(
-                "Channel %d: last single was %s ago, skipping pacing (age=%s, pacing=%dm)",
-                channel.id, now - last_single, channel_age, pacing_minutes,
+                "Channel %d: last single was %s ago, skipping pacing (pacing=%dm)",
+                channel.id, now - last_single, pacing,
             )
             return
 

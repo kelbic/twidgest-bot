@@ -32,7 +32,7 @@ All multi-tenant: one bot process serves many users, each with their own sources
 - **Scheduler:** APScheduler (in-process)
 - **LLM:** [OpenRouter](https://openrouter.ai/) — Llama 3.3 70B (default) and Claude Sonnet 4 (Pro tier)
 - **Sources:** [twitterapi.io](https://twitterapi.io/) + VK API, both with in-memory TTL cache
-- **Payments:** Telegram Stars (XTR), subscription model with auto-renewal
+- **Payments:** Telegram Stars (XTR) + RUB cards via Telegram Payments provider (`PAYMENT_PROVIDER_TOKEN` from BotFather, e.g. YooKassa; `PRICE_RUB`)
 - **Deployment:** systemd service on a single VPS; SQLite in WAL mode (multi-process safe), nightly `.backup` snapshots with 14-day rotation via systemd timer
 
 ## Architecture
@@ -106,7 +106,7 @@ Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET
 
 **Configurable engagement thresholds.** Each channel has `min_likes` and `min_retweets` settings, configurable via `/setthreshold`. For `unfiltered` channels, thresholds are automatically ignored. Admins can override via `/admin setthreshold`.
 
-**Subscription billing via Telegram Stars.** Uses native Telegram `sendInvoice`. `XTR` currency, no Stripe/Paddle needed — critical for creators in regions where traditional payment rails aren't available.
+**Billing via Telegram `sendInvoice`.** Two rails: Telegram Stars (`XTR`, works globally, no provider needed) and RUB card payments through a Telegram Payments provider token from BotFather (YooKassa/Robokassa; set `PAYMENT_PROVIDER_TOKEN` + `PRICE_RUB` in `.env` — without them the bot is Stars-only).
 
 **Free trial model.** New users get 30 days of full Free-tier access. After expiry, posting stops and users are prompted to upgrade to Pro (2999 ⭐/month).
 

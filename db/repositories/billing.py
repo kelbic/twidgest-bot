@@ -57,12 +57,15 @@ async def record_payment(
     amount_stars: int,
     tier: "Tier | str",
     telegram_payment_charge_id: str,
+    currency: str = "XTR",
 ) -> Payment | None:
     """Записывает платеж. tier — строка ('slot:5') или legacy Tier.
+    amount_stars — в минимальных единицах валюты (Stars или копейки).
     Возвращает None, если такой charge_id уже был (дубль)."""
     payment = Payment(
         user_id=user_id,
         amount_stars=amount_stars,
+        currency=currency,
         tier=tier.value if isinstance(tier, Tier) else str(tier),
         telegram_payment_charge_id=telegram_payment_charge_id,
     )

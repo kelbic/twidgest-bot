@@ -36,11 +36,58 @@ def init_engine(database_url: str) -> None:
 
 
 async def init_db() -> None:
-    """Создаёт все таблицы, если их нет. Безопасно вызывать многократно."""
+    """Создаёт все таблицы и добавляет недостающие колонки.
+
+    create_all не трогает уже существующие таблицы, поэтому новые колонки
+    моделей доливаем сами: PRAGMA table_info → ALTER TABLE ADD COLUMN.
+    Безопасно вызывать многократно.
+    """
     if _engine is None:
         raise RuntimeError("Call init_engine() first")
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_columns)
+
+
+def _ensure_columns(sync_conn) -> None:
+    """Лёгкая миграция для SQLite: добавляет колонки, появившиеся в моделях.
+
+    Покрывает простые случаи (nullable-колонка или скалярный default) —
+    ровно то, чем прирастает схема. NOT NULL ставим только вместе с DEFAULT,
+    иначе SQLite откажет на непустой таблице.
+    """
+    import logging
+
+    from sqlalchemy import inspect as sa_inspect
+
+    if sync_conn.dialect.name != "sqlite":
+        return
+    logger = logging.getLogger(__name__)
+    inspector = sa_inspect(sync_conn)
+    for table in Base.metadata.sorted_tables:
+        existing = {c["name"] for c in inspector.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            ddl = (
+                f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" '
+                f"{col.type.compile(dialect=sync_conn.dialect)}"
+            )
+            default = None
+            if col.default is not None and col.default.is_scalar:
+                default = col.default.arg
+            if default is not None:
+                if isinstance(default, bool):
+                    default = int(default)
+                if isinstance(default, (int, float)):
+                    ddl += f" DEFAULT {default}"
+                else:
+                    escaped = str(default).replace("'", "''")
+                    ddl += f" DEFAULT '{escaped}'"
+                if not col.nullable:
+                    ddl += " NOT NULL"
+            sync_conn.exec_driver_sql(ddl)
+            logger.info("db migrate: %s + колонка %s", table.name, col.name)
 
 
 def session_maker() -> async_sessionmaker[AsyncSession]:

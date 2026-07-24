@@ -24,6 +24,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
+from config import Config
 from core.plan import (
     PRICE_STARS,
     SLOT_DAYS,
@@ -31,12 +32,24 @@ from core.plan import (
     channel_status,
     extension_base,
 )
-from db.models import Channel
+from db.models import Channel, Payment
 from db.repositories.billing import get_user_payments, record_payment
 from db.session import session_maker
 
 logger = logging.getLogger(__name__)
 router = Router(name="billing")
+
+_cfg = Config()
+
+
+def payment_amount_display(p: Payment) -> str:
+    """'999⭐' для Stars, '1490 ₽' для рублей (amount в копейках)."""
+    currency = getattr(p, "currency", None) or "XTR"
+    if currency == "XTR":
+        return f"{p.amount_stars}⭐"
+    if currency == "RUB":
+        return f"{p.amount_stars // 100} ₽"
+    return f"{p.amount_stars / 100:.2f} {currency}"
 
 _STATUS_LINE = {
     "admin": "🛡 служебный канал (без оплаты)",
@@ -73,10 +86,15 @@ async def cmd_upgrade(message: Message) -> None:
         )
         return
 
-    lines = [
-        f"💳 <b>Оплата каналов</b> — {PRICE_STARS}⭐ за {SLOT_DAYS} дней "
+    rub_enabled = bool(_cfg.payment_provider_token)
+    price_line = (
+        f"💳 <b>Оплата каналов</b> — {_cfg.price_rub} ₽ (или {PRICE_STARS}⭐) "
+        f"за {SLOT_DAYS} дней автопостинга на канал\n"
+        if rub_enabled
+        else f"💳 <b>Оплата каналов</b> — {PRICE_STARS}⭐ за {SLOT_DAYS} дней "
         f"автопостинга на канал\n"
-    ]
+    )
+    lines = [price_line]
     buttons: list[list[InlineKeyboardButton]] = []
     for ch in channels:
         lines.append(f"<b>{html.escape(ch.title or '')}</b> (id={ch.id})\n  {_status_text(ch)}")
@@ -84,10 +102,22 @@ async def cmd_upgrade(message: Message) -> None:
         if st == "admin":
             continue
         verb = "Продлить" if st in ("paid", "trial") else "Активировать"
-        buttons.append([InlineKeyboardButton(
-            text=f"💳 {verb} «{ch.title[:24]}» — {PRICE_STARS}⭐",
-            callback_data=f"payslot:{ch.id}",
-        )])
+        if rub_enabled:
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"💳 {verb} «{ch.title[:18]}» — {_cfg.price_rub} ₽",
+                    callback_data=f"payrub:{ch.id}",
+                ),
+                InlineKeyboardButton(
+                    text=f"⭐ {PRICE_STARS}",
+                    callback_data=f"payslot:{ch.id}",
+                ),
+            ])
+        else:
+            buttons.append([InlineKeyboardButton(
+                text=f"💳 {verb} «{ch.title[:24]}» — {PRICE_STARS}⭐",
+                callback_data=f"payslot:{ch.id}",
+            )])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     lines.append(
@@ -96,15 +126,13 @@ async def cmd_upgrade(message: Message) -> None:
     await message.answer("\n".join(lines), reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("payslot:"))
-async def cb_pay_slot(callback: CallbackQuery) -> None:
-    if callback.from_user is None or callback.data is None:
-        return
+async def _own_channel_from_callback(callback: CallbackQuery) -> Channel | None:
+    """Достаёт канал из callback_data 'pay*:<id>' с проверкой владельца."""
     try:
-        channel_id = int(callback.data.split(":", 1)[1])
+        channel_id = int((callback.data or "").split(":", 1)[1])
     except (ValueError, IndexError):
         await callback.answer("Некорректный канал", show_alert=True)
-        return
+        return None
 
     async with session_maker()() as session:
         result = await session.execute(
@@ -117,20 +145,69 @@ async def cb_pay_slot(callback: CallbackQuery) -> None:
 
     if channel is None:
         await callback.answer("Канал не найден или не твой", show_alert=True)
+        return None
+    return channel
+
+
+def _invoice_texts(channel: Channel) -> tuple[str, str]:
+    return (
+        f"Канал «{channel.title[:28]}» — {SLOT_DAYS} дней",
+        f"Автопостинг для канала «{channel.title[:60]}»: сбор твитов, "
+        f"AI-отбор, перевод и публикация. {SLOT_DAYS} дней с момента "
+        f"окончания текущего периода.",
+    )
+
+
+@router.callback_query(F.data.startswith("payslot:"))
+async def cb_pay_slot(callback: CallbackQuery) -> None:
+    if callback.from_user is None or callback.data is None:
+        return
+    channel = await _own_channel_from_callback(callback)
+    if channel is None:
         return
 
     await callback.answer()
+    title, description = _invoice_texts(channel)
     await callback.bot.send_invoice(
         chat_id=callback.from_user.id,
-        title=f"Канал «{channel.title[:28]}» — {SLOT_DAYS} дней",
-        description=(
-            f"Автопостинг для канала «{channel.title[:60]}»: сбор твитов, "
-            f"AI-отбор, перевод и публикация. {SLOT_DAYS} дней с момента "
-            f"окончания текущего периода."
-        ),
+        title=title,
+        description=description,
         payload=f"slot:{channel.id}",
         currency="XTR",
         prices=[LabeledPrice(label=f"{SLOT_DAYS} дней автопостинга", amount=PRICE_STARS)],
+    )
+
+
+@router.callback_query(F.data.startswith("payrub:"))
+async def cb_pay_rub(callback: CallbackQuery) -> None:
+    """Рублёвый инвойс через провайдера Telegram Payments (BotFather)."""
+    if callback.from_user is None or callback.data is None:
+        return
+    if not _cfg.payment_provider_token:
+        await callback.answer(
+            "Оплата картой временно недоступна — оплати Stars", show_alert=True
+        )
+        return
+    channel = await _own_channel_from_callback(callback)
+    if channel is None:
+        return
+
+    await callback.answer()
+    title, description = _invoice_texts(channel)
+    await callback.bot.send_invoice(
+        chat_id=callback.from_user.id,
+        title=title,
+        description=description,
+        payload=f"slot:{channel.id}",
+        provider_token=_cfg.payment_provider_token,
+        currency="RUB",
+        # Суммы в Telegram Payments — в минимальных единицах (копейки)
+        prices=[LabeledPrice(
+            label=f"{SLOT_DAYS} дней автопостинга",
+            amount=_cfg.price_rub * 100,
+        )],
+        need_email=_cfg.payment_need_email,
+        send_email_to_provider=_cfg.payment_need_email,
     )
 
 
@@ -177,11 +254,11 @@ async def on_successful_payment(message: Message) -> None:
             await session.commit()
             await record_payment(
                 session, uid, sp.total_amount, f"slot:{channel_id}",
-                sp.telegram_payment_charge_id,
+                sp.telegram_payment_charge_id, currency=sp.currency or "XTR",
             )
         logger.info(
-            "payment: slot %d paid by %d, active until %s",
-            channel_id, uid, new_until,
+            "payment: slot %d paid by %d (%s %s), active until %s",
+            channel_id, uid, sp.total_amount, sp.currency, new_until,
         )
         await message.answer(
             f"✅ Оплата получена! Канал <b>«{html.escape(channel.title or '')}»</b> активен "
@@ -196,7 +273,7 @@ async def on_successful_payment(message: Message) -> None:
         async with session_maker()() as session:
             await record_payment(
                 session, uid, sp.total_amount, payload,
-                sp.telegram_payment_charge_id,
+                sp.telegram_payment_charge_id, currency=sp.currency or "XTR",
             )
         await message.answer(
             "✅ Платёж получен по старому тарифу. Мы перешли на оплату "
@@ -219,6 +296,6 @@ async def cmd_payments(message: Message) -> None:
     lines = ["🧾 <b>Последние платежи:</b>\n"]
     for p in payments:
         lines.append(
-            f"  {p.created_at:%d.%m.%Y} — {p.amount_stars}⭐ ({p.tier})"
+            f"  {p.created_at:%d.%m.%Y} — {payment_amount_display(p)} ({p.tier})"
         )
     await message.answer("\n".join(lines))

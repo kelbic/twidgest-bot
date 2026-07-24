@@ -81,6 +81,11 @@ class Channel(Base):
     # Расписание
     digest_interval_hours: Mapped[int] = mapped_column(Integer, default=12)
     digest_max_tweets: Mapped[int] = mapped_column(Integer, default=7)
+    # Пейсинг single-постов: минимум минут между публикациями («не чаще
+    # N раз в час»). Настройка владельца (/setinterval), floor по статусу.
+    single_interval_minutes: Mapped[int] = mapped_column(
+        Integer, default=30, nullable=False
+    )
 
     # Статус
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -267,7 +272,9 @@ class Payment(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    # Сумма в минимальных единицах валюты: Stars для XTR, копейки для RUB.
     amount_stars: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(8), default="XTR", nullable=False)
     tier: Mapped[str] = mapped_column(String(16))
     telegram_payment_charge_id: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

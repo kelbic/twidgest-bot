@@ -67,6 +67,14 @@ MAX_CHANNELS_PER_USER = 10
 # Floor интервала дайджестов по статусу (часов)
 _DIGEST_FLOOR = {"admin": 1, "paid": 2, "trial": 6, "inactive": 24}
 
+# Floor пейсинга single-постов по статусу (минут между постами).
+# 15 = абсолютный потолок частоты «не чаще 4 раз в час».
+_SINGLE_FLOOR_MIN = {"admin": 15, "paid": 15, "trial": 15, "inactive": 60}
+
+
+def single_floor_minutes(channel) -> int:
+    return _SINGLE_FLOOR_MIN[channel_status(channel)]
+
 # Строки для /me
 MAX_SOURCES_NOTE = "15"
 DAILY_EVAL_BUDGET_NOTE = "150"

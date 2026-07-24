@@ -55,4 +55,19 @@ class Config:
     vk_access_token: str = field(
         default_factory=lambda: os.getenv("VK_ACCESS_TOKEN", "")
     )
+
+    # Оплата рублями через Telegram Payments: токен провайдера из BotFather
+    # (@BotFather → Bot Settings → Payments → ЮKassa/Robokassa/...).
+    # Пусто = рублёвой кнопки нет, оплата только Stars.
+    payment_provider_token: str = field(
+        default_factory=lambda: os.getenv("PAYMENT_PROVIDER_TOKEN", "")
+    )
+    # Цена слота (30 дней на канал) в рублях
+    price_rub: int = field(default_factory=lambda: int(os.getenv("PRICE_RUB", "1490")))
+    # 1 = запрашивать e-mail и передавать провайдеру (нужно для чеков 54-ФЗ,
+    # если у провайдера включена фискализация; самозанятым не требуется)
+    payment_need_email: bool = field(
+        default_factory=lambda: os.getenv("PAYMENT_NEED_EMAIL", "0") == "1"
+    )
+
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))

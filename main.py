@@ -116,7 +116,11 @@ async def main() -> None:
     )
     scheduler.add_job(
         run_viral_picker_cycle,
-        trigger=IntervalTrigger(hours=1),
+        # 15 мин, НЕ час: частоту постинга задаёт пер-канальный пейсинг
+        # (/setinterval, до 4 постов/час) — цикл обязан ходить не реже
+        # самого быстрого разрешённого пейсинга. Дешёвые проверки (пейсинг,
+        # квота, очередь) стоят до LLM-вызовов, вхолостую цикл почти бесплатен.
+        trigger=IntervalTrigger(minutes=15),
         kwargs={"bot": bot, "llm_default": llm_default},
     )
     scheduler.add_job(
@@ -142,6 +146,7 @@ async def main() -> None:
         BotCommand(command="sources", description="Источники канала"),
         BotCommand(command="scout", description="AI-скаут: подобрать источники"),
         BotCommand(command="status", description="Детальная статистика канала"),
+        BotCommand(command="setinterval", description="Как часто публиковать"),
         BotCommand(command="me", description="Тариф и лимиты"),
         BotCommand(command="upgrade", description="Тарифы и покупка"),
         BotCommand(command="help", description="Все команды и FAQ"),

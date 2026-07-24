@@ -8,9 +8,14 @@ from __future__ import annotations
 import html
 import re
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from sqlalchemy import select
 
 from prompts import list_filter_modes as list_presets, get_filter_mode as get_preset, FILTER_MODES as PRESETS
@@ -568,6 +573,202 @@ async def cmd_setimages(message: Message, command: CommandObject) -> None:
     await message.answer(
         f"{state_emoji} Картинки в канале «{html.escape(channel.title or '')}» <b>{state_text}</b>.\n\n"
         f"{'Посты будут идти с релевантными фото из Unsplash.' if enable else 'Посты будут только текстом.'}"
+    )
+
+
+# ------------------------------------------------------------------ #
+# /setinterval — как часто бот может публиковать («не чаще N раз в час»)
+# ------------------------------------------------------------------ #
+
+# Варианты пейсинга single-постов: (подпись кнопки, минут между постами)
+_SINGLE_CHOICES: tuple[tuple[str, int], ...] = (
+    ("4/час", 15), ("3/час", 20), ("2/час", 30), ("1/час", 60),
+    ("раз в 2 ч", 120), ("раз в 4 ч", 240), ("раз в 8 ч", 480),
+)
+# Варианты интервала дайджестов (часов)
+_DIGEST_CHOICES: tuple[int, ...] = (2, 4, 6, 12, 24)
+
+
+def _fmt_single_interval(minutes: int) -> str:
+    if minutes < 60:
+        return f"не чаще {60 // minutes} раз в час"
+    if minutes == 60:
+        return "не чаще 1 раза в час"
+    return f"не чаще 1 раза в {minutes // 60} ч"
+
+
+def _interval_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
+    from core.plan import digest_floor, single_floor_minutes
+
+    show_single = channel.mode in ("single", "hybrid")
+    show_digest = channel.mode in ("digest", "hybrid")
+
+    lines = [
+        f"⏱ <b>Интервал публикаций</b> — «{html.escape(channel.title or '')}» "
+        f"(id={channel.id})\n"
+    ]
+    if show_single:
+        cur = _fmt_single_interval(
+            max(channel.single_interval_minutes or 30, single_floor_minutes(channel))
+        )
+        lines.append(f"Посты в ленту: <b>{cur}</b>")
+    if show_digest:
+        dh = max(channel.digest_interval_hours, digest_floor(channel))
+        lines.append(f"Дайджесты: <b>раз в {dh} ч</b>")
+    lines.append("\nВыбери, как часто бот может публиковать:")
+    if show_single and show_digest:
+        lines.append("верхние кнопки — посты, 📰 — дайджесты.")
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if show_single:
+        floor = single_floor_minutes(channel)
+        btns = [
+            InlineKeyboardButton(
+                text=(("✅ " if m == channel.single_interval_minutes else "") + label),
+                callback_data=f"sint:{channel.id}:{m}",
+            )
+            for label, m in _SINGLE_CHOICES
+            if m >= floor
+        ]
+        rows.append(btns[:4])
+        if btns[4:]:
+            rows.append(btns[4:])
+    if show_digest:
+        dfloor = digest_floor(channel)
+        rows.append([
+            InlineKeyboardButton(
+                text=(("✅ " if h == channel.digest_interval_hours else "") + f"📰 {h} ч"),
+                callback_data=f"dint:{channel.id}:{h}",
+            )
+            for h in _DIGEST_CHOICES
+            if h >= dfloor
+        ])
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.message(Command("setinterval"))
+async def cmd_setinterval(message: Message, command: CommandObject) -> None:
+    """Настройка частоты публикаций канала (кнопками)."""
+    if message.from_user is None:
+        return
+    args = _parse_args(command.args, 1)
+    if not args:
+        async with session_maker()() as session:
+            result = await session.execute(
+                select(Channel).where(Channel.user_id == message.from_user.id)
+            )
+            chans = list(result.scalars().all())
+        if not chans:
+            await message.answer("У тебя пока нет каналов.")
+            return
+        if len(chans) == 1:
+            text, kb = _interval_card(chans[0])
+            await message.answer(text, reply_markup=kb)
+            return
+        lines = ["Использование: <code>/setinterval &lt;channel_id&gt;</code>\n\nТвои каналы:"]
+        lines += [f"  • <b>{html.escape(c.title or '')}</b> (id={c.id})" for c in chans]
+        await message.answer("\n".join(lines))
+        return
+
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("❌ ID канала должен быть числом.")
+        return
+
+    channel = await _get_user_channel(message.from_user.id, channel_id)
+    if channel is None:
+        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        return
+
+    text, kb = _interval_card(channel)
+    await message.answer(text, reply_markup=kb)
+
+
+async def _apply_interval(
+    callback: CallbackQuery, channel_id: int, field_values: dict, ok_text: str
+) -> None:
+    """Общий хвост sint/dint: запись и перерисовка карточки."""
+    from sqlalchemy import update as sa_update
+
+    async with session_maker()() as session:
+        await session.execute(
+            sa_update(Channel).where(Channel.id == channel_id).values(**field_values)
+        )
+        await session.commit()
+
+    channel = await _get_user_channel(callback.from_user.id, channel_id)
+    if channel is not None:
+        text, kb = _interval_card(channel)
+        try:
+            await callback.message.edit_text(text, reply_markup=kb)
+        except Exception:
+            pass  # текст не изменился (повторное нажатие той же кнопки)
+    await callback.answer(ok_text)
+
+
+@router.callback_query(F.data.startswith("sint:"))
+async def cb_set_single_interval(callback: CallbackQuery) -> None:
+    from core.plan import single_floor_minutes
+
+    try:
+        _, raw_id, raw_min = (callback.data or "").split(":")
+        channel_id, minutes = int(raw_id), int(raw_min)
+    except ValueError:
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+    if minutes not in {m for _, m in _SINGLE_CHOICES}:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    if callback.from_user is None:
+        return
+    channel = await _get_user_channel(callback.from_user.id, channel_id)
+    if channel is None:
+        await callback.answer("Канал не найден или не твой", show_alert=True)
+        return
+    floor = single_floor_minutes(channel)
+    if minutes < floor:
+        await callback.answer(
+            f"Для этого канала минимум — {_fmt_single_interval(floor)}",
+            show_alert=True,
+        )
+        return
+    await _apply_interval(
+        callback, channel_id,
+        {"single_interval_minutes": minutes},
+        f"Посты: {_fmt_single_interval(minutes)}",
+    )
+
+
+@router.callback_query(F.data.startswith("dint:"))
+async def cb_set_digest_interval(callback: CallbackQuery) -> None:
+    from core.plan import digest_floor
+
+    try:
+        _, raw_id, raw_h = (callback.data or "").split(":")
+        channel_id, hours = int(raw_id), int(raw_h)
+    except ValueError:
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+    if hours not in _DIGEST_CHOICES:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    if callback.from_user is None:
+        return
+    channel = await _get_user_channel(callback.from_user.id, channel_id)
+    if channel is None:
+        await callback.answer("Канал не найден или не твой", show_alert=True)
+        return
+    if hours < digest_floor(channel):
+        await callback.answer(
+            f"Для этого канала минимум — раз в {digest_floor(channel)} ч",
+            show_alert=True,
+        )
+        return
+    await _apply_interval(
+        callback, channel_id,
+        {"digest_interval_hours": hours},
+        f"Дайджесты: раз в {hours} ч",
     )
 
 
