@@ -1,93 +1,45 @@
 ---
 layout: landing
-title: TwidgestBot — Twitter и VK в Telegram-канал на автопилоте
-description: Multi-tenant Telegram-бот для автоматизации новостных каналов. Адаптирует твиты из X и посты из VK в посты на русском, публикует в твой канал.
+title: Twidgest — Telegram-канал на автопилоте. Посты из X (Twitter) и VK на русском
+description: Бот ведёт твой тематический Telegram-канал сам — собирает виральные посты из X и VK, фильтрует AI-редактором, переводит на русский и публикует по твоему расписанию. Триал 7 дней без карты.
 ---
 
-<style>
-.hero { padding: 60px 20px; text-align: center; }
-.hero h1 { font-size: 2.4rem; margin-bottom: 0.5em; line-height: 1.2; }
-.hero .subtitle { font-size: 1.2rem; color: #555; max-width: 600px; margin: 0 auto 2em; line-height: 1.5; }
-.cta-btn {
-  display: inline-block;
-  background: #229ED9;
-  color: white !important;
-  padding: 14px 32px;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  text-decoration: none;
-  margin: 8px;
-}
-.cta-btn:hover { background: #1b8cc4; }
-.cta-btn.secondary { background: #555; }
-.section { padding: 50px 20px; max-width: 800px; margin: 0 auto; }
-.section h2 { font-size: 1.8rem; margin-bottom: 1em; }
-.section h3 { font-size: 1.3rem; margin-top: 1.5em; }
-.steps { display: grid; gap: 24px; margin: 30px 0; }
-.step {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  padding: 20px;
-  background: #f6f8fa;
-  border-radius: 8px;
-}
-.step-num {
-  background: #229ED9;
-  color: white;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.step-text { flex: 1; }
-.step-text strong { display: block; margin-bottom: 4px; }
-.tiers {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin: 30px 0;
-}
-.tier {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 20px;
-  text-align: center;
-}
-.tier.featured { border-color: #229ED9; border-width: 2px; }
-.tier h4 { margin: 0 0 8px; }
-.tier .price { font-size: 1.4rem; font-weight: 600; margin-bottom: 12px; }
-.tier ul { list-style: none; padding: 0; text-align: left; font-size: 0.9rem; }
-.tier ul li { padding: 4px 0; }
-.faq-item { padding: 16px 0; border-bottom: 1px solid #eee; }
-.faq-item summary { font-weight: 600; cursor: pointer; padding: 8px 0; }
-.faq-item p { margin: 8px 0 0; color: #555; }
-footer { text-align: center; padding: 40px 20px; color: #777; font-size: 0.9rem; }
-footer a { color: #555; }
-@media (max-width: 600px) {
-  .hero { padding: 30px 15px; }
-  .hero h1 { font-size: 1.8rem; }
-  .hero .subtitle { font-size: 1rem; }
-  .section { padding: 30px 15px; }
-}
-</style>
-
 <div class="hero">
-<h1>Твой Telegram-канал<br>на автопилоте</h1>
+<div>
+<div class="hero-badge">⚡ Источники: X (Twitter) + VK · AI-фильтры · публикации по расписанию</div>
+<h1>Твой Telegram-канал<br>на <span class="accent">автопилоте</span></h1>
 <p class="subtitle">
-TwidgestBot собирает посты из X (Twitter) и VK, переводит на русский,
-оформляет и публикует в твой канал. Без копипасты, без ручного труда.
+Twidgest собирает лучшие посты по твоей теме из X и VK, отсеивает мусор
+AI-редактором, переводит на русский и публикует в твой канал.
+Без копипасты, без ручного труда — канал живёт сам.
 </p>
+<div class="hero-ctas">
 <a class="cta-btn" href="https://t.me/TwidgestBot">Попробовать бесплатно →</a>
 <a class="cta-btn secondary" href="#how-it-works">Как это работает</a>
 </div>
+<div class="hero-stats">
+<div class="hero-stat"><b>7 дней</b><span>триал без карты</span></div>
+<div class="hero-stat"><b>15 тем</b><span>готовых шаблонов</span></div>
+<div class="hero-stat"><b>до 4/час</b><span>частота постов — твой выбор</span></div>
+</div>
+</div>
+
+<div class="mockup">
+<div class="tg-post main">
+<div class="tg-head"><div class="tg-ava">🚀</div><div><b>Космос Дейли</b><span>твой канал</span></div></div>
+<div class="tg-body">🛰 SpaceX вывела на орбиту ещё 23 спутника Starlink — это уже 7-й запуск за месяц. Первая ступень села на платформу в 12-й раз.<br><span class="src">→ источник</span></div>
+<div class="tg-foot"><span>👍 48</span><span>🔥 12</span><span>14:02</span></div>
+</div>
+<div class="tg-post back">
+<div class="tg-head"><div class="tg-ava">📰</div><div><b>Космос Дейли</b><span>вечерний дайджест</span></div></div>
+<div class="tg-body">🌌 <b>Главное за день:</b><br>• NASA назвала дату миссии к Европе<br>• Телескоп James Webb нашёл…<br>• Blue Origin анонсировала…</div>
+<div class="tg-foot"><span>👍 31</span><span>21:00</span></div>
+</div>
+</div>
+</div>
 
 <div class="section" id="how-it-works">
+<div class="eyebrow">Старт за 30 секунд</div>
 <h2>Как это работает — 3 шага</h2>
 <div class="steps">
 
@@ -95,9 +47,9 @@ TwidgestBot собирает посты из X (Twitter) и VK, переводи
 <div class="step-num">1</div>
 <div class="step-text">
 <strong>Выбираешь тему</strong>
-Пишешь тему своими словами — AI подберёт и проверит авторов — или берёшь готовый шаблон (AI, космос, гейминг, кино, F1) —
-AI подберёт релевантные X-аккаунты и проверит, что они активны.
-Или добавляешь VK-сообщества вручную.
+Пишешь тему своими словами — AI подберёт авторов в X, проверит по их реальным
+твитам, что они активны и пишут по теме, — или берёшь готовый шаблон
+(AI, космос, гейминг, кино, F1). VK-сообщества добавляются вручную.
 </div>
 </div>
 
@@ -114,233 +66,206 @@ AI подберёт релевантные X-аккаунты и провери�
 <div class="step-num">3</div>
 <div class="step-text">
 <strong>Получаешь готовые посты</strong>
-Структурированные дайджесты несколько раз в день + отдельные посты с самыми
-вирусными новостями. С релевантными картинками из Unsplash или прямо из VK.
+Отдельные посты с самыми виральными новостями + структурированные дайджесты —
+в том темпе, который выберешь сам. С релевантными картинками из Unsplash
+или прямо из VK.
 </div>
 </div>
 
 </div>
+<div class="chips">
+<span class="chip">🤖 AI & Tech</span><span class="chip">💰 Crypto & Web3</span><span class="chip">🚀 Startups & VC</span><span class="chip">🧬 Longevity</span><span class="chip">🏎 Formula 1</span><span class="chip">🏀 NBA</span><span class="chip">⚽ Футбол</span><span class="chip">🌌 Космос</span><span class="chip">🔬 Наука</span><span class="chip">🎮 Гейминг</span><span class="chip">🎨 Дизайн</span><span class="chip">🎬 Кино и сериалы</span><span class="chip">📈 Маркетинг</span><span class="chip">💭 Философия</span><span class="chip">⚡ Tesla & SpaceX</span>
+</div>
 </div>
 
-<div class="section">
+<div class="section" id="features">
+<div class="eyebrow">Возможности</div>
 <h2>Что внутри</h2>
+<p class="section-sub">Всё управление — прямо из Telegram, без панелей и сайтов.
+Бот присылает карточки, ты жмёшь кнопки.</p>
 
-<h3>Источники: Twitter/X и VK</h3>
-<p>
-Добавляй источники из обоих платформ в один канал:<br>
-<code>/addsource 5 @elonmusk</code> — Twitter-аккаунт<br>
-<code>/addsource 5 vk:lentaru</code> — VK-сообщество<br>
-Бот проверяет существование и публичность источника перед добавлением.
-</p>
+<div class="features">
 
-<h3>Готовые темы (за 30 секунд)</h3>
-<p>
-🤖 AI & Tech • 💰 Crypto & Web3 • 🚀 Startups & VC • 🧬 Longevity & Biohacking •
-🏎 Formula 1 • 🏀 NBA • ⚽ Soccer • 🚀 Space & Astronomy •
-🔬 Science • 🎮 Gaming • 🎨 Design & UX • 🎬 Movies & TV •
-📈 Marketing & Growth • 💭 Philosophy • ⚡ Tesla & SpaceX
-</p>
+<div class="feature">
+<span class="icon">⏱</span>
+<h3>Частота публикаций — твоя<span class="new">NEW</span></h3>
+<p>Команда <code>/setinterval</code>: посты «не чаще 4/3/2/1 раз в час»
+или раз в 2–8 часов, дайджесты — раз в 2–24 часа. Кнопками,
+для каждого канала отдельно.</p>
+</div>
 
-<h3>Три режима фильтрации</h3>
-<p>
-🎯 <strong>Строгий</strong> — только факты и события с цифрами. Высокая планка.<br>
-📡 <strong>Свободный</strong> — новости, реакции, комьюнити-посты. Пропускает почти всё.<br>
-⚡ <strong>Без фильтра</strong> — публикует всё кроме юридически рискованного контента.
-Переключение: <code>/setfilter &lt;id&gt; strict|loose|unfiltered</code>
-</p>
+<div class="feature">
+<span class="icon">🔎</span>
+<h3>AI-скаут живых авторов<span class="new">NEW</span></h3>
+<p>Скаут проверяет каждого кандидата по его реальным твитам и отсеивает
+«знаменитых молчунов»: в канал попадают только активные авторы
+(от 3 твитов в неделю), которые реально прокормят ленту.
+Добавление — только по твоей кнопке.</p>
+</div>
 
-<h3>Управление прямо из Telegram</h3>
+<div class="feature">
+<span class="icon">🧠</span>
+<h3>AI-редактор вместо лайков</h3>
+<p>Перед публикацией кандидаты ранжируются по содержательности: побеждает
+самый интересный твит, а не самый залайканный. Engagement-bait
+и giveaway отсеиваются.</p>
+</div>
+
+<div class="feature">
+<span class="icon">🎚</span>
+<h3>Порог интересности</h3>
+<p><code>/setminterest</code> — AI оценивает каждый твит на 1–10 по попаданию
+в тему. Ниже порога — не публикуется: канал лучше промолчит, чем выложит
+оффтоп. Есть и пер-источниковый порог для «всеядных» аккаунтов.</p>
+</div>
+
+<div class="feature">
+<span class="icon">📡</span>
+<h3>X (Twitter) + VK в одном канале</h3>
+<p><code>/addsource 5 @elonmusk</code> — Twitter,
+<code>/addsource 5 vk:lentaru</code> — VK. Бот проверяет существование
+и публичность источника перед добавлением.</p>
+</div>
+
+<div class="feature">
+<span class="icon">🛡</span>
+<h3>Защита от мусора и рисков</h3>
+<p>LLM-фильтр режет рекламу и пустые ретвиты, дедупликация не даст выйти
+4 постам про одно событие. Юр-фильтр РФ-рисков включён по умолчанию,
+3 режима строгости: <code>/setfilter strict|loose|unfiltered</code>.</p>
+</div>
+
+<div class="feature">
+<span class="icon">🖼</span>
+<h3>Картинки к постам</h3>
+<p>Релевантные фото из Unsplash подбираются по смыслу поста
+(или берутся из VK-оригинала). Отключается одной командой
+<code>/setimages</code>.</p>
+</div>
+
+<div class="feature">
+<span class="icon">📊</span>
+<h3>Недельный отчёт</h3>
+<p>Каждый понедельник — сводка: сколько постов вышло, средний
+interest-балл потока, сколько слабых тем отфильтровано и сколько часов
+ручной работы сэкономлено.</p>
+</div>
+
+</div>
+
+<div class="cmd-card">
+<h3>Полное управление из Telegram</h3>
 <p>
 <code>/status &lt;id&gt;</code> — диагностика: источники, очередь, следующий дайджест<br>
-<code>/sources</code>, <code>/addsource</code>, <code>/removesource</code> — управление источниками<br>
-<code>/setthreshold &lt;id&gt; likes=N retweets=N</code> — настройка порога виральности<br>
-<code>/setminterest &lt;id&gt; 0-10</code> — порог интересности постов (AI-оценка темы)<br>
-<code>/setdescription &lt;id&gt; текст</code> — тема канала для AI-редактора (по умолчанию берётся из названия)<br>
-<code>/setsourceinterest &lt;id&gt; @user 0-10</code> — порог интереса для одного источника<br>
-<code>/setfilter &lt;id&gt; strict|loose|unfiltered</code> — режим фильтрации<br>
+<code>/setinterval &lt;id&gt;</code> — как часто публиковать (кнопками)<br>
+<code>/sources</code> · <code>/addsource</code> · <code>/removesource</code> — управление источниками<br>
+<code>/scout &lt;id&gt;</code> — AI-скаут: подобрать и проверить новых авторов<br>
 <code>/regenerate &lt;id&gt;</code> — пересоздать источники через AI<br>
-<code>/scout &lt;id&gt;</code> — AI-скаут: подобрать новые источники с проверкой<br>
-<code>/setimages &lt;id&gt; on|off</code> — картинки в канале<br>
-<code>/setlegal &lt;id&gt;</code> — юр-фильтр RF-рисков (вкл/выкл под подтверждение)<br>
-<code>/me</code> — каналы и статусы, <code>/upgrade</code> — оплата
+<code>/setthreshold &lt;id&gt; likes=N retweets=N</code> — порог виральности<br>
+<code>/setminterest &lt;id&gt; 0-10</code> — порог интересности (AI-оценка)<br>
+<code>/setsourceinterest &lt;id&gt; @user 0-10</code> — порог для одного источника<br>
+<code>/setfilter &lt;id&gt; strict|loose|unfiltered</code> — режим фильтрации<br>
+<code>/setimages &lt;id&gt; on|off</code> — картинки · <code>/setlegal &lt;id&gt;</code> — юр-фильтр<br>
+<code>/me</code> — каналы и статусы · <code>/upgrade</code> — оплата
 </p>
-
-<h3>Недельный отчёт владельцу</h3>
-<p>
-Каждый понедельник бот присылает сводку по твоим каналам: сколько постов вышло
-(одиночных и дайджестов), средний interest-балл потока по оценке AI-редактора,
-сколько слабых тем отфильтровано — и сколько часов ручной работы это сэкономило.
-</p>
-
-<h3>Защита от мусора</h3>
-<p>
-LLM-фильтр отсекает рекламу, ретвиты без мысли, политически рискованный контент
-(для РФ-аудитории), медицинские дозировки. Дедупликация по теме — не публикуем
-4 поста про одно событие подряд. Перед публикацией AI-редактор ранжирует
-кандидатов по содержательности: побеждает самый интересный твит, а не просто
-самый залайканный, engagement-bait и giveaway отсеиваются.
-</p>
-<p>
-<strong>Порог интересности</strong> (<code>/setminterest &lt;id&gt; 0-10</code>):
-AI-редактор оценивает каждый твит на интересность и попадание в тему канала по
-шкале 1-10. С выставленным порогом всё, что ниже, не публикуется — канал лучше
-промолчит, чем выложит оффтоп. Это превращает ранжирование в фильтр и позволяет
-смело добавлять всеядные мегааккаунты (вроде новостных агрегаторов, пишущих обо
-всём): из их ленты в канал пройдёт только то, что реально по теме. По умолчанию
-выключен; рекомендуемое значение для узких тематических каналов — 5-6.
-</p>
-<p>
-<strong>Порог для отдельного источника</strong>
-(<code>/setsourceinterest &lt;id&gt; @user 0-10</code>): тот же порог интереса, но
-для ОДНОГО источника — перекрывает общий порог канала именно для его твитов.
-Зачем: «смешанный» источник (всеядный агрегатор, что постит обо всём — например
-крупный новостной аккаунт) можно держать на высоком пороге, пропуская в канал
-только профильное, пока профильные авторы живут на мягком общем пороге. Виден в
-<code>/sources</code> как «🎯 порог N» у источника.
-</p>
-
-<h3>AI-скаут источников</h3>
-<p>
-Если канал замолчал или источники выдохлись — команда <code>/scout</code>
-(или кнопка прямо в алерте о тишине) подберёт новых авторов под тему канала.
-Каждого кандидата скаут проверяет по его реальным последним твитам: доля
-текстовых постов, медиана лайков, частота постинга, доля твитов по теме
-канала (AI-оценка) и сколько постов в неделю автор реально даст именно
-твоему каналу. Добавление — только по твоей кнопке, бот сам источники
-не меняет.
-</p>
+</div>
 </div>
 
 <div class="section" id="essayist">
-<h2>✍️ Essayist — авторские разборы <small>(надстройка)</small></h2>
-<p>
-Essayist — отдельный бот <a href="https://t.me/essayist_bot">@essayist_bot</a>, который работает
-<strong>поверх твоих каналов TwidgestBot</strong>. Он берёт виральный твит (или твою тему),
-пишет по нему заземлённый авторский разбор на русском — с веб-ресёрчем и проверкой фактов —
-и публикует в канал <strong>только после твоего одобрения</strong>. Автопостинга нет.
+<div class="essayist-wrap">
+<span class="tag">Надстройка</span>
+<h2>✍️ Essayist — авторские разборы</h2>
+<p style="color:var(--muted);max-width:720px;">
+Отдельный бот <a href="https://t.me/essayist_bot">@essayist_bot</a>, работающий
+<strong>поверх твоих каналов Twidgest</strong>. Берёт виральный твит (или твою тему)
+и пишет заземлённый авторский разбор на русском: план → веб-ресёрч → синтез фактов →
+черновик → критик-фактчекер. Если веб-поиск не дал ни одного источника,
+разбор не выпускается — защита от выдуманных фактов.
 </p>
-
-<h3>Чем отличается от обычного поста</h3>
-<p>
-TwidgestBot адаптирует и постит новость. Essayist пишет <strong>разбор</strong>: что стоит за
-новостью, конкретный кейс, цифры с источниками. Пайплайн — план → веб-поиск → синтез фактов →
-черновик → критик-фактчекер. Если веб-поиск не дал ни одного результата, разбор не выпускается —
-защита от выдуманных фактов.
-</p>
-
-<h3>Решение всегда за тобой (human-in-the-loop)</h3>
-<p>
-Бот присылает карточку с готовым разбором и кнопками:<br>
-✅ <strong>Опубликовать</strong> — пост уходит в канал<br>
-✍️ <strong>Сменить угол</strong> — перегенерировать под другим углом<br>
-❌ <strong>Отклонить</strong> — с причиной. Без твоего нажатия ничего не публикуется.
-</p>
-
+<div class="features" style="margin-top:22px;">
+<div class="feature">
+<span class="icon">✅</span>
+<h3>Публикуешь только ты</h3>
+<p>Бот присылает карточку с готовым разбором: «Опубликовать», «Сменить угол»,
+«Отклонить». Автопостинга нет — без твоего нажатия ничего не выходит.</p>
+</div>
+<div class="feature">
+<span class="icon">⏰</span>
 <h3>Автоподбор тем</h3>
-<p>
-Можно включить автоподбор по каналу: бот проверяет очередь каждые 30 минут и по выбранной
-частоте канала (3 / 6 / 9 / 12 / 24 ч) присылает свежую (не старше суток) топовую тему на
-одобрение. Непоисковые темы (мемы без фактуры) бот пропускает сам. По умолчанию автоподбор выключен.
+<p>По желанию — бот сам приносит свежую топовую тему канала на одобрение
+с выбранной частотой (3–24 ч). Мемы без фактуры пропускает.</p>
+</div>
+<div class="feature">
+<span class="icon">🎁</span>
+<h3>Свой триал</h3>
+<p>Первый <code>/start</code> включает 7 дней и 20 разборов без карты.
+Дальше — 1490⭐ за 30 дней (20 разборов), оплата кнопкой в боте.</p>
+</div>
+</div>
+<p style="color:var(--muted);margin-top:20px;margin-bottom:0;">
+Подключение: заведи канал в <a href="https://t.me/TwidgestBot">@TwidgestBot</a> →
+открой <a href="https://t.me/essayist_bot">@essayist_bot</a> → добавь его админом канала
+с правом публикации → <code>/essay &lt;id&gt;</code> или автоподбор через <code>/timer</code>.
 </p>
-
-<h3>Команды</h3>
-<p>
-<code>/essay &lt;id&gt;</code> — топ свежих тем канала, выбрать кнопкой<br>
-<code>/essay &lt;id&gt; all</code> — показать всё, включая уже опубликованное<br>
-<code>/essay &lt;id&gt; &lt;своя тема или ссылка&gt;</code> — разбор по своему тексту<br>
-<code>/timer</code> — автоподбор: вкл/выкл и частота по каналам<br>
-<code>/help</code> — справка по командам
-</p>
-</div>
-
-<div class="section">
-<h2>Как подключить Essayist</h2>
-<div class="steps">
-
-<div class="step">
-<div class="step-num">1</div>
-<div class="step-text">
-<strong>Нужен канал в TwidgestBot</strong>
-Essayist берёт темы из тех же источников, что собирает TwidgestBot.
-Сначала заведи и привяжи канал в <a href="https://t.me/TwidgestBot">@TwidgestBot</a> (см. инструкцию выше).
 </div>
 </div>
 
-<div class="step">
-<div class="step-num">2</div>
-<div class="step-text">
-<strong>Открой Essayist</strong>
-Перейди в <a href="https://t.me/essayist_bot">@essayist_bot</a>, нажми <code>/start</code>.
-</div>
-</div>
-
-<div class="step">
-<div class="step-num">3</div>
-<div class="step-text">
-<strong>Триал включится сам</strong>
-На первом <code>/start</code> бот выдаёт триал: <strong>7 дней и 20 разборов</strong>,
-без карты. Дальше — 1490⭐ за 30 дней (20 разборов), оплата кнопкой прямо в боте.
-</div>
-</div>
-
-<div class="step">
-<div class="step-num">4</div>
-<div class="step-text">
-<strong>Добавь бота в канал</strong>
-Добавь @essayist_bot администратором канала с правом «Публикация сообщений» —
-без этого он не сможет опубликовать разбор.
-</div>
-</div>
-
-<div class="step">
-<div class="step-num">5</div>
-<div class="step-text">
-<strong>Поехали</strong>
-<code>/essay &lt;id_канала&gt;</code> — выбери тему и получи карточку с разбором.
-Или <code>/timer</code> — включи автоподбор по каналу.
-</div>
-</div>
-
-</div>
-</div>
-
-<div class="section">
-<h2>Тарифы</h2>
+<div class="section" id="pricing">
+<div class="eyebrow">Тарифы</div>
+<h2>Просто и без подписок-ловушек</h2>
+<p class="section-sub">Платишь за канал, а не «за аккаунт». Разовая покупка на 30 дней —
+никаких автосписаний. Кончилась оплата — канал молчит, настройки и история сохраняются.</p>
 <div class="tiers">
 
 <div class="tier">
 <h4>🎁 Триал</h4>
 <div class="price">0 ⭐</div>
+<div class="price-note">7 дней на первый канал</div>
 <ul>
-<li>✓ 7 дней бесплатно на первый канал</li>
-<li>✓ Полный функционал: AI-подбор и проверка источников, фильтры, дайджесты</li>
-<li>✓ До 20 постов в день</li>
-<li>✓ Без карты — просто напиши тему боту</li>
+<li>Полный функционал: AI-подбор и проверка источников, фильтры, дайджесты</li>
+<li>До 20 постов в день</li>
+<li>Настройка частоты публикаций</li>
+<li>Без карты — просто напиши тему боту</li>
 </ul>
 </div>
 
 <div class="tier featured">
+<span class="badge">ОСНОВНОЙ</span>
 <h4>Канал</h4>
 <div class="price">999 ⭐ <small>/ 30 дней</small></div>
+<div class="price-note">≈ 1000–1500 ₽ в зависимости от способа покупки Stars</div>
 <ul>
-<li>✓ Цена за канал — платишь только за то, что работает</li>
-<li>✓ До 15 источников на канал (X + VK)</li>
-<li>✓ До 50 постов в день</li>
-<li>✓ AI-редактор, ранжирование, все режимы фильтрации</li>
-<li>✓ AI-скаут источников</li>
+<li>Цена за канал — платишь только за то, что работает</li>
+<li>До 15 источников на канал (X + VK)</li>
+<li>До 50 постов в день, частота — на твой вкус</li>
+<li>AI-редактор, ранжирование, все режимы фильтрации</li>
+<li>AI-скаут источников и недельные отчёты</li>
+</ul>
+</div>
+
+<div class="tier">
+<h4>✍️ Essayist</h4>
+<div class="price">1490 ⭐ <small>/ 30 дней</small></div>
+<div class="price-note">надстройка, 20 авторских разборов</div>
+<ul>
+<li>Разборы с веб-ресёрчем и фактчеком</li>
+<li>Публикация только после твоего одобрения</li>
+<li>Автоподбор тем по расписанию</li>
+<li>Свой триал: 7 дней / 20 разборов</li>
 </ul>
 </div>
 
 </div>
-<p style="text-align:center;color:#666;font-size:0.9rem;">
-Платежи через Telegram Stars (999⭐ ≈ 1000-1500₽ в зависимости от способа
-покупки). Оплата добавляет 30 дней к текущей дате окончания канала.
-Без оплаты канал просто молчит — настройки и история сохраняются.
+<p class="pay-note">
+Оплата — в пару кликов внутри Telegram (Telegram Stars). Оплата российской
+картой в рублях — на подходе. Продление добавляет 30 дней к текущей дате
+окончания, автосписаний нет.
 </p>
 </div>
 
-<div class="section">
-<h2>Инструкция: настройка за 5 минут</h2>
+<div class="section narrow" id="setup">
+<div class="eyebrow">Инструкция</div>
+<h2>Настройка за 5 минут</h2>
 <div class="steps">
 
 <div class="step">
@@ -355,9 +280,8 @@ Essayist берёт темы из тех же источников, что со�
 <div class="step-num">2</div>
 <div class="step-text">
 <strong>Создай канал в боте</strong>
-Просто напиши боту тему одним сообщением («крикет, IPL») — AI подберёт
-и проверит реальные источники из X.<br>
-Или <code>/templates</code> — готовая тема одной кнопкой.
+Напиши боту тему одним сообщением («крикет, IPL») — AI подберёт и проверит
+реальные источники из X. Или <code>/templates</code> — готовая тема одной кнопкой.
 </div>
 </div>
 
@@ -380,16 +304,17 @@ Essayist берёт темы из тех же источников, что со�
 <div class="step">
 <div class="step-num">5</div>
 <div class="step-text">
-<strong>Готово</strong>
-В течение 30 минут начнётся первый цикл сбора.
-Проверить статус: <code>/status &lt;id_канала&gt;</code>
+<strong>Настрой темп и жди посты</strong>
+В течение 30 минут начнётся первый цикл сбора. Частота публикаций —
+<code>/setinterval</code>, статус — <code>/status &lt;id_канала&gt;</code>.
 </div>
 </div>
 
 </div>
 </div>
 
-<div class="section">
+<div class="section narrow" id="faq">
+<div class="eyebrow">FAQ</div>
 <h2>Частые вопросы</h2>
 
 <details class="faq-item">
@@ -405,36 +330,51 @@ Essayist берёт темы из тех же источников, что со�
 </details>
 
 <details class="faq-item">
+<summary>Как управлять частотой постов?</summary>
+<p>
+Команда <code>/setinterval</code> — кнопками, отдельно для каждого канала:
+посты в ленту «не чаще 4, 3, 2 или 1 раза в час» либо раз в 2–8 часов,
+дайджесты — раз в 2, 4, 6, 12 или 24 часа. Выставил — бот никогда
+не превысит выбранный темп.
+</p>
+</details>
+
+<details class="faq-item">
 <summary>Можно добавлять VK-источники?</summary>
 <p>
 Да. Используй команду <code>/addsource &lt;id&gt; vk:domain</code>, например
-<code>/addsource 5 vk:lentaru</code>. Бот проверит что сообщество публичное и существует.
-Twitter и VK источники работают в одном канале одновременно.
+<code>/addsource 5 vk:lentaru</code>. Бот проверит, что сообщество публичное и существует.
+Twitter- и VK-источники работают в одном канале одновременно.
 </p>
 </details>
 
 <details class="faq-item">
 <summary>Что если AI подобрал плохие источники?</summary>
 <p>
-Используй <code>/regenerate &lt;id&gt;</code> — бот заменит весь список.
-Или добавь свои через <code>/addsource &lt;id&gt; @username</code> или <code>vk:domain</code>.
+Используй <code>/regenerate &lt;id&gt;</code> — бот заменит весь список,
+или <code>/scout &lt;id&gt;</code> — подберёт новых авторов с проверкой по их
+реальным твитам (частота, активность, доля постов по теме). Скаут отсеивает
+и «знаменитых молчунов»: популярный автор, который пишет раз в месяц,
+в канал не попадёт. Свои источники — <code>/addsource</code>.
 </p>
 </details>
 
 <details class="faq-item">
-<summary>Сколько стоит подписка в рублях?</summary>
+<summary>Сколько стоит в рублях и как платить?</summary>
 <p>
-Telegram Stars — внутренняя валюта Telegram. 1 ⭐ примерно равен 1-2 рублям
-(точный курс зависит от способа покупки). Канал (999⭐) ≈ 1000-1500₽ за 30 дней.
+Оплата проходит внутри Telegram в Stars: 1 ⭐ ≈ 1–2 ₽ в зависимости от способа
+покупки, канал (999⭐) ≈ 1000–1500 ₽ за 30 дней. Оплата российской картой
+в рублях без Stars — на подходе, кнопка появится прямо в <code>/upgrade</code>.
 </p>
 </details>
 
 <details class="faq-item">
 <summary>Что если канал ничего не постит несколько часов?</summary>
 <p>
-Открой <code>/status &lt;id&gt;</code>. Там видно сколько твитов в очереди,
-какие источники активны и что отклонено. Команда <code>/regenerate &lt;id&gt;</code>
-пересоздаст список источников через AI.
+Открой <code>/status &lt;id&gt;</code> — там видно, сколько твитов в очереди, какие
+источники активны и что отклонено. Возможно, выставлен медленный темп
+(<code>/setinterval</code>) или высокий порог. Если источники выдохлись —
+<code>/scout &lt;id&gt;</code> подберёт свежих авторов.
 </p>
 </details>
 
@@ -450,53 +390,30 @@ Telegram Stars — внутренняя валюта Telegram. 1 ⭐ приме�
 <details class="faq-item">
 <summary>Как отменить подписку?</summary>
 <p>
-Оплата канала — разовая покупка на 30 дней, не автосписание. По истечении
-канал просто перестаёт публиковать; источники и настройки сохраняются.
-Просто не покупаешь снова. Возврат средств после успешной оплаты не предусмотрен
-кроме технических сбоев.
+Никак не нужно — её нет. Оплата канала — разовая покупка на 30 дней, не автосписание.
+По истечении канал просто перестаёт публиковать; источники и настройки сохраняются.
+Возврат средств после успешной оплаты не предусмотрен, кроме технических сбоев.
 </p>
 </details>
 
 <details class="faq-item">
 <summary>Чем Essayist отличается от обычных постов?</summary>
 <p>
-TwidgestBot адаптирует и постит новости. Essayist пишет авторский разбор по одной теме —
-с веб-ресёрчем, источниками и проверкой фактов — и публикует только после твоего одобрения.
-Это отдельный бот <a href="https://t.me/essayist_bot">@essayist_bot</a>, надстройка над TwidgestBot.
-</p>
-</details>
-
-<details class="faq-item">
-<summary>Essayist постит сам, без меня?</summary>
-<p>
-Нет. Бот присылает готовый разбор карточкой с кнопками — публикуется только когда ты нажмёшь
-«Опубликовать». Можно перегенерировать под другим углом или отклонить. Автоподбор по таймеру
-тоже шлёт карточку на одобрение, а не постит напрямую.
-</p>
-</details>
-
-<details class="faq-item">
-<summary>Нужен ли отдельный канал для Essayist?</summary>
-<p>
-Нет. Essayist работает на твоих существующих каналах TwidgestBot и постит в них же.
-Нужно только добавить @essayist_bot админом канала с правом публикации.
+Twidgest адаптирует и постит новости. Essayist пишет авторский разбор по одной теме —
+с веб-ресёрчем, источниками и проверкой фактов — и публикует только после твоего
+одобрения. Это отдельный бот <a href="https://t.me/essayist_bot">@essayist_bot</a>,
+надстройка над Twidgest: работает на тех же каналах, нужно только добавить его
+админом с правом публикации.
 </p>
 </details>
 
 </div>
 
-<div class="section" style="text-align:center;">
-<h2>Готов попробовать?</h2>
+<div class="section">
+<div class="final-cta">
+<h2>Запусти канал сегодня</h2>
 <p>Первый канал — 🎁 триал 7 дней, без карты: просто напиши тему боту.
-Дальше — 999⭐ за 30 дней на канал (15 источников X+VK, до 50 постов в день).</p>
+Через полчаса выйдет первый пост.</p>
 <a class="cta-btn" href="https://t.me/TwidgestBot">Запустить бот →</a>
 </div>
-
-<footer>
-<p>
-<a href="legal/privacy.html">Политика конфиденциальности</a> ·
-<a href="legal/terms.html">Условия использования</a> ·
-<a href="https://github.com/kelbic/twidgest-bot">GitHub</a>
-</p>
-<p>© 2026 TwidgestBot. Сделано <a href="https://github.com/kelbic">@kelbic</a>.</p>
-</footer>
+</div>
