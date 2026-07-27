@@ -125,9 +125,11 @@ async def cmd_upgrade(message: Message) -> None:
             continue
         verb = "Продлить" if st in ("paid", "trial", "admin") else "Активировать"
         if rub_enabled:
+            # Цена — первой: половинную кнопку Telegram режет с конца,
+            # и «— 1490 ₽» после названия канала терялось.
             buttons.append([
                 InlineKeyboardButton(
-                    text=f"💳 {verb} «{ch.title[:18]}» — {_cfg.price_rub} ₽",
+                    text=f"💳 {_cfg.price_rub} ₽ · {ch.title[:12]}",
                     callback_data=f"payrub:{ch.id}",
                 ),
                 InlineKeyboardButton(
