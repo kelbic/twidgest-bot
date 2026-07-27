@@ -47,6 +47,13 @@ async def init_db() -> None:
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
+        # Данные: до 27.07.2026 дефолт пейсинга был 30 мин, и выбрать 30
+        # можно было кнопкой «2/час». Суб-часовые варианты удалены, поэтому
+        # оставшиеся 30 — это нетронутый старый дефолт; поднимаем до нового.
+        await conn.exec_driver_sql(
+            "UPDATE channels SET single_interval_minutes = 60 "
+            "WHERE single_interval_minutes = 30"
+        )
 
 
 def _ensure_columns(sync_conn) -> None:

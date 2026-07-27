@@ -54,3 +54,24 @@ async def test_idempotent_on_fresh_db(engine):
     await dbs.init_db()
     await dbs.init_db()  # повторный вызов не должен падать
     assert "single_interval_minutes" in await _columns(engine, "channels")
+
+
+async def test_legacy_default_interval_bumped(engine):
+    # Старый дефолт 30 мин поднимается до 60; явный выбор владельца не трогаем
+    await dbs.init_db()
+    from db.models import Channel
+
+    sm = dbs.session_maker()
+    async with sm() as s:
+        legacy = Channel(user_id=2, title="legacy", single_interval_minutes=30)
+        chosen = Channel(user_id=2, title="chosen", single_interval_minutes=120)
+        s.add_all([legacy, chosen])
+        await s.commit()
+
+    await dbs.init_db()
+
+    async with engine.connect() as conn:
+        res = await conn.exec_driver_sql(
+            "SELECT title, single_interval_minutes FROM channels ORDER BY title"
+        )
+        assert res.fetchall() == [("chosen", 120), ("legacy", 60)]

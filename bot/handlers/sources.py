@@ -580,10 +580,10 @@ async def cmd_setimages(message: Message, command: CommandObject) -> None:
 # /setinterval — как часто бот может публиковать («не чаще N раз в час»)
 # ------------------------------------------------------------------ #
 
-# Варианты пейсинга single-постов: (подпись кнопки, минут между постами)
+# Варианты пейсинга single-постов: (подпись кнопки, минут между постами).
+# Суб-часовых вариантов нет сознательно: чаще раза в час — спам для читателя.
 _SINGLE_CHOICES: tuple[tuple[str, int], ...] = (
-    ("4/час", 15), ("3/час", 20), ("2/час", 30), ("1/час", 60),
-    ("раз в 2 ч", 120), ("раз в 4 ч", 240), ("раз в 8 ч", 480),
+    ("1/час", 60), ("раз в 2 ч", 120), ("раз в 4 ч", 240), ("раз в 8 ч", 480),
 )
 # Варианты интервала дайджестов (часов)
 _DIGEST_CHOICES: tuple[int, ...] = (2, 4, 6, 12, 24)
@@ -609,7 +609,7 @@ def _interval_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     ]
     if show_single:
         cur = _fmt_single_interval(
-            max(channel.single_interval_minutes or 30, single_floor_minutes(channel))
+            max(channel.single_interval_minutes or 60, single_floor_minutes(channel))
         )
         lines.append(f"Посты в ленту: <b>{cur}</b>")
     if show_digest:

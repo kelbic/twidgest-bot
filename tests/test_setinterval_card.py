@@ -10,7 +10,7 @@ from db.models import Channel
 def _channel(mode: str = "hybrid", **kw) -> Channel:
     ch = Channel(
         user_id=2, title="Тестовый", mode=mode,
-        digest_interval_hours=12, single_interval_minutes=30,
+        digest_interval_hours=12, single_interval_minutes=60,
     )
     ch.id = 5
     ch.paid_until = datetime.utcnow() + timedelta(days=5)
@@ -47,10 +47,11 @@ def test_trial_digest_floor_filters_fast_options():
     assert hours == {6, 12, 24}
 
 
-def test_paid_single_floor_allows_4_per_hour():
+def test_fastest_single_option_is_hourly():
+    # Суб-часовых кнопок нет ни для кого: чаще раза в час — спам
     _text, kb = _interval_card(_channel("hybrid"))
     minutes = {int(c.split(":")[2]) for c in _callbacks(kb) if c.startswith("sint:")}
-    assert 15 in minutes  # paid: до 4 постов/час доступно
+    assert minutes == {60, 120, 240, 480}
 
 
 def test_fmt_single_interval():

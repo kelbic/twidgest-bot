@@ -44,8 +44,9 @@ TOP_CANDIDATES_TO_TRY = 5
 # Минимальное engagement, чтобы вообще рассматривать твит как single
 MIN_LIKES_FOR_SINGLE = 100
 # Дефолт пейсинга single-постов (минут) — совпадает с default колонки
-# Channel.single_interval_minutes; владелец меняет через /setinterval
-DEFAULT_SINGLE_INTERVAL_MIN = 30
+# Channel.single_interval_minutes; владелец меняет через /setinterval.
+# До 27.07.2026 был 30 — легаси-значения поднимает init_db.
+DEFAULT_SINGLE_INTERVAL_MIN = 60
 # Активация: первые 24ч жизни канала ускоряем, чтобы юзер быстро увидел ленту
 ACTIVATION_INTERVAL_MIN = 15
 

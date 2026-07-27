@@ -82,9 +82,9 @@ class Channel(Base):
     digest_interval_hours: Mapped[int] = mapped_column(Integer, default=12)
     digest_max_tweets: Mapped[int] = mapped_column(Integer, default=7)
     # Пейсинг single-постов: минимум минут между публикациями («не чаще
-    # N раз в час»). Настройка владельца (/setinterval), floor по статусу.
+    # раза в N часов»). Настройка владельца (/setinterval), floor по статусу.
     single_interval_minutes: Mapped[int] = mapped_column(
-        Integer, default=30, nullable=False
+        Integer, default=60, nullable=False
     )
 
     # Статус
