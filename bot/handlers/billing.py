@@ -41,6 +41,11 @@ router = Router(name="billing")
 
 _cfg = Config()
 
+# ВРЕМЕННО: витрина рублёвых цен для проверки ЮKassa (заявка 135189499).
+# Цена в ₽ и кнопка «💳» показываются без provider_token; по нажатию —
+# честный алерт «подключается». Убрать после боевого токена.
+RUB_SHOWCASE = True
+
 
 def payment_amount_display(p: Payment) -> str:
     """'999⭐' для Stars, '1490 ₽' для рублей (amount в копейках)."""
@@ -86,7 +91,7 @@ async def cmd_upgrade(message: Message) -> None:
         )
         return
 
-    rub_enabled = bool(_cfg.payment_provider_token)
+    rub_enabled = bool(_cfg.payment_provider_token) or RUB_SHOWCASE
     price_line = (
         f"💳 <b>Оплата каналов</b> — {_cfg.price_rub} ₽ (или {PRICE_STARS}⭐) "
         f"за {SLOT_DAYS} дней автопостинга на канал\n"
@@ -185,7 +190,8 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
         return
     if not _cfg.payment_provider_token:
         await callback.answer(
-            "Оплата картой временно недоступна — оплати Stars", show_alert=True
+            "Оплата картой (ЮKassa) уже подключается — пока можно "
+            "оплатить Stars ⭐", show_alert=True
         )
         return
     channel = await _own_channel_from_callback(callback)
