@@ -47,6 +47,18 @@ _cfg = Config()
 RUB_SHOWCASE = True
 
 
+def rub_visible() -> bool:
+    """Показывать ли рублёвые цены: боевой токен или витрина."""
+    return bool(_cfg.payment_provider_token) or RUB_SHOWCASE
+
+
+def price_display() -> str:
+    """'1490 ₽ (или 999⭐)' при рублях, иначе '999⭐' — для любых текстов."""
+    if rub_visible():
+        return f"{_cfg.price_rub} ₽ (или {PRICE_STARS}⭐)"
+    return f"{PRICE_STARS}⭐"
+
+
 def payment_amount_display(p: Payment) -> str:
     """'999⭐' для Stars, '1490 ₽' для рублей (amount в копейках)."""
     currency = getattr(p, "currency", None) or "XTR"
@@ -91,7 +103,7 @@ async def cmd_upgrade(message: Message) -> None:
         )
         return
 
-    rub_enabled = bool(_cfg.payment_provider_token) or RUB_SHOWCASE
+    rub_enabled = rub_visible()
     price_line = (
         f"💳 <b>Оплата каналов</b> — {_cfg.price_rub} ₽ (или {PRICE_STARS}⭐) "
         f"за {SLOT_DAYS} дней автопостинга на канал\n"
@@ -104,9 +116,14 @@ async def cmd_upgrade(message: Message) -> None:
     for ch in channels:
         lines.append(f"<b>{html.escape(ch.title or '')}</b> (id={ch.id})\n  {_status_text(ch)}")
         st = channel_status(ch)
-        if st == "admin":
+        # В витрине (без боевого токена) админ-каналы тоже получают кнопки —
+        # иначе владельцу нечего показать на скриншотах для ЮKassa.
+        showcase_admin = (
+            st == "admin" and RUB_SHOWCASE and not _cfg.payment_provider_token
+        )
+        if st == "admin" and not showcase_admin:
             continue
-        verb = "Продлить" if st in ("paid", "trial") else "Активировать"
+        verb = "Продлить" if st in ("paid", "trial", "admin") else "Активировать"
         if rub_enabled:
             buttons.append([
                 InlineKeyboardButton(

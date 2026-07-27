@@ -159,8 +159,9 @@ async def cmd_me(message: Message) -> None:
             tg_user_id=message.from_user.id,
             tg_username=message.from_user.username,
         )
+        from bot.handlers.billing import price_display
         from core.plan import (
-            DAILY_EVAL_BUDGET_NOTE, MAX_SOURCES_NOTE, PRICE_STARS,
+            DAILY_EVAL_BUDGET_NOTE, MAX_SOURCES_NOTE,
             SLOT_DAYS, channel_status,
         )
         channels = list(user.channels) if hasattr(user, "channels") else []
@@ -173,7 +174,7 @@ async def cmd_me(message: Message) -> None:
         text = (
             f"👤 <b>Ваш профиль</b>\n\n"
             f"Каналы:\n" + "\n".join(ch_lines) + "\n\n"
-            f"💳 Модель простая: <b>{PRICE_STARS}⭐ за {SLOT_DAYS} дней</b> "
+            f"💳 Модель простая: <b>{price_display()} за {SLOT_DAYS} дней</b> "
             f"на канал, первый канал — триал 7 дней.\n"
             f"Лимиты канала: {MAX_SOURCES_NOTE} источников, "
             f"{DAILY_EVAL_BUDGET_NOTE} AI-оценок/день.\n\n"
