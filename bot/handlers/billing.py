@@ -12,7 +12,7 @@ import json
 import logging
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -163,11 +163,12 @@ async def _own_channel_from_callback(callback: CallbackQuery) -> Channel | None:
     return channel
 
 
-def _receipt_provider_data() -> str | None:
+def _receipt_provider_data(amount_rub: int | None = None) -> str | None:
     """Чек 54-ФЗ для ЮKassa. None, если фискализация выключена.
 
     E-mail покупателя Telegram подставляет сам при need_email +
-    send_email_to_provider, поэтому в чеке только позиция.
+    send_email_to_provider, поэтому в чеке только позиция. Сумма позиции
+    обязана совпадать с суммой инвойса — отсюда параметр amount_rub.
     """
     if not _cfg.payment_receipt:
         return None
@@ -177,7 +178,7 @@ def _receipt_provider_data() -> str | None:
                 "description": f"Автопостинг канала, {SLOT_DAYS} дней",
                 "quantity": "1.00",
                 "amount": {
-                    "value": f"{_cfg.price_rub}.00",
+                    "value": f"{amount_rub or _cfg.price_rub}.00",
                     "currency": "RUB",
                 },
                 "vat_code": _cfg.payment_vat_code,
@@ -349,18 +350,62 @@ async def check_rub_provider(bot) -> tuple[bool, str]:
     return True, link
 
 
-@router.message(Command("paycheck"))
-async def cmd_paycheck(message: Message) -> None:
-    """Админ: проверка рублёвого провайдера без платежа и без адресата.
+async def _send_test_invoice(message: Message, amount_rub: int) -> None:
+    """Настоящий рублёвый инвойс админу на произвольную сумму.
 
-    createInvoiceLink гоняет параметры через ЮKassa так же, как реальный
-    инвойс, но ссылку никто не получает и деньги не списываются.
+    Нужен для e2e-проверки: служебные каналы владельца кнопок оплаты
+    не получают, а пройти весь путь до чека и продления надо.
+    """
+    async with session_maker()() as session:
+        result = await session.execute(
+            select(Channel).where(Channel.user_id == message.from_user.id)
+        )
+        channel = result.scalars().first()
+    if channel is None:
+        await message.answer("Нет ни одного канала — не к чему привязать платёж.")
+        return
+    await message.bot.send_invoice(
+        chat_id=message.from_user.id,
+        title=f"Проверка оплаты — {amount_rub} ₽",
+        description=(
+            f"Тестовый платёж по каналу «{channel.title[:40]}». "
+            f"Проходит через ЮKassa как обычная покупка."
+        ),
+        payload=f"slot:{channel.id}",
+        provider_token=_cfg.payment_provider_token,
+        currency="RUB",
+        prices=[LabeledPrice(label="Проверка оплаты", amount=amount_rub * 100)],
+        need_email=_cfg.payment_need_email or _cfg.payment_receipt,
+        send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+        provider_data=_receipt_provider_data(amount_rub),
+    )
+    await message.answer(
+        f"Отправил инвойс на {amount_rub} ₽ по каналу «{html.escape(channel.title or '')}». "
+        f"Оплати — проверим весь путь: списание, чек на e-mail и запись в /payments."
+    )
+
+
+@router.message(Command("paycheck"))
+async def cmd_paycheck(message: Message, command: CommandObject) -> None:
+    """Админ: проверка рублёвого провайдера.
+
+    Без аргументов — валидация параметров через createInvoiceLink: ЮKassa
+    проверяет токен, сумму и чек, но платежа нет. С суммой (`/paycheck 10`) —
+    настоящий инвойс себе для сквозной проверки.
     """
     if message.from_user is None or message.from_user.id != _ADMIN_ID:
         return
     token = _cfg.payment_provider_token
     if not token:
         await message.answer("PAYMENT_PROVIDER_TOKEN пуст — рублей нет.")
+        return
+
+    arg = (command.args or "").strip()
+    if arg:
+        if not arg.isdigit() or not 1 <= int(arg) <= 10000:
+            await message.answer("Сумма — целое число рублей от 1 до 10000.")
+            return
+        await _send_test_invoice(message, int(arg))
         return
     shape = token.split(":")[1] if token.count(":") >= 2 else "?"
     head = (
