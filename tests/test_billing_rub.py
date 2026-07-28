@@ -69,3 +69,20 @@ def test_receipt_shape_when_enabled(monkeypatch):
     assert item["amount"] == {"value": "1490.00", "currency": "RUB"}
     assert item["quantity"] == "1.00"
     assert item["vat_code"] == 1
+
+
+@pytest.mark.parametrize(
+    "receipt,contact,expected",
+    [
+        (True, "phone", (False, True)),   # деф.: номер из аккаунта в один тап
+        (True, "email", (True, False)),
+        (True, "none", (False, False)),   # чек формирует сама ЮKassa
+        (False, "phone", (False, False)),  # без чека контакт не спрашиваем
+    ],
+)
+def test_contact_flags(monkeypatch, receipt, contact, expected):
+    import bot.handlers.billing as b
+    monkeypatch.setattr(b._cfg, "payment_receipt", receipt, raising=False)
+    monkeypatch.setattr(b._cfg, "payment_need_email", False, raising=False)
+    monkeypatch.setattr(b._cfg, "payment_contact", contact, raising=False)
+    assert b._contact_flags() == expected

@@ -167,11 +167,27 @@ async def _own_channel_from_callback(callback: CallbackQuery) -> Channel | None:
     return channel
 
 
+def _contact_flags() -> tuple[bool, bool]:
+    """(need_email, need_phone) — контакт покупателя для чека 54-ФЗ.
+
+    Плательщику это лишний шаг, поэтому спрашиваем только когда чек
+    действительно наш, и по умолчанию телефоном: Telegram подставляет
+    номер аккаунта одним тапом, а e-mail надо набирать руками.
+    """
+    if not (_cfg.payment_receipt or _cfg.payment_need_email):
+        return False, False
+    if _cfg.payment_contact == "email":
+        return True, False
+    if _cfg.payment_contact == "none":
+        return False, False
+    return False, True
+
+
 def _receipt_provider_data(amount_rub: int | None = None) -> str | None:
     """Чек 54-ФЗ для ЮKassa. None, если фискализация выключена.
 
-    E-mail покупателя Telegram подставляет сам при need_email +
-    send_email_to_provider, поэтому в чеке только позиция. Сумма позиции
+    Контакт покупателя (телефон или e-mail) Telegram подставляет сам —
+    см. _contact_flags, поэтому в чеке только позиция. Сумма позиции
     обязана совпадать с суммой инвойса — отсюда параметр amount_rub.
     """
     if not _cfg.payment_receipt:
@@ -239,6 +255,7 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
 
     await callback.answer()
     title, description = _invoice_texts(channel)
+    _need_email, _need_phone = _contact_flags()
     await callback.bot.send_invoice(
         chat_id=callback.from_user.id,
         title=title,
@@ -252,8 +269,10 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
             amount=_cfg.price_rub * 100,
         )],
         # С чеком e-mail обязателен: ЮKassa шлёт на него фискальный документ
-        need_email=_cfg.payment_need_email or _cfg.payment_receipt,
-        send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+        need_email=_need_email,
+        send_email_to_provider=_need_email,
+        need_phone_number=_need_phone,
+        send_phone_number_to_provider=_need_phone,
         provider_data=_receipt_provider_data(),
     )
 
@@ -338,6 +357,7 @@ async def check_rub_provider(bot) -> str:
     как реальный инвойс. Ссылку наружу не отдаём — payload у неё не «slot:»,
     так что оплата по ней всё равно упрётся в pre-checkout. Бросает при отказе.
     """
+    _need_email, _need_phone = _contact_flags()
     return await bot.create_invoice_link(
         title=f"Проверка оплаты — {SLOT_DAYS} дней",
         description="Тестовый инвойс, никому не отправляется.",
@@ -348,8 +368,10 @@ async def check_rub_provider(bot) -> str:
             label=f"{SLOT_DAYS} дней автопостинга",
             amount=_cfg.price_rub * 100,
         )],
-        need_email=_cfg.payment_need_email or _cfg.payment_receipt,
-        send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+        need_email=_need_email,
+        send_email_to_provider=_need_email,
+        need_phone_number=_need_phone,
+        send_phone_number_to_provider=_need_phone,
         provider_data=_receipt_provider_data(),
     )
 
@@ -368,6 +390,7 @@ async def _send_test_invoice(message: Message, amount_rub: int) -> None:
     if channel is None:
         await message.answer("Нет ни одного канала — не к чему привязать платёж.")
         return
+    _need_email, _need_phone = _contact_flags()
     try:
         await message.bot.send_invoice(
             chat_id=message.from_user.id,
@@ -380,8 +403,10 @@ async def _send_test_invoice(message: Message, amount_rub: int) -> None:
             provider_token=_cfg.payment_provider_token,
             currency="RUB",
             prices=[LabeledPrice(label="Проверка оплаты", amount=amount_rub * 100)],
-            need_email=_cfg.payment_need_email or _cfg.payment_receipt,
-            send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+            need_email=_need_email,
+            send_email_to_provider=_need_email,
+            need_phone_number=_need_phone,
+            send_phone_number_to_provider=_need_phone,
             provider_data=_receipt_provider_data(amount_rub),
         )
     except Exception as exc:  # noqa: BLE001 — молчаливый отказ хуже текста ошибки

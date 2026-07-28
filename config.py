@@ -78,5 +78,10 @@ class Config:
     payment_vat_code: int = field(
         default_factory=lambda: int(os.getenv("PAYMENT_VAT_CODE", "1"))
     )
+    # Куда ЮKassa шлёт чек: phone (Telegram подставляет номер из аккаунта —
+    # один тап), email (надо печатать руками), none (чек формирует ЮKassa сама)
+    payment_contact: str = field(
+        default_factory=lambda: os.getenv("PAYMENT_CONTACT", "phone")
+    )
 
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
