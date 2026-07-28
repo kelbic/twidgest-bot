@@ -47,6 +47,15 @@ async def main() -> None:
     await init_db()
     logging.info("DB initialized at %s", cfg.database_url)
 
+    # Способы оплаты — в лог при старте: единственный способ снаружи увидеть,
+    # подхватился ли PAYMENT_PROVIDER_TOKEN (сам токен, разумеется, не пишем).
+    _tok = cfg.payment_provider_token
+    _mode = _tok.split(":")[1] if _tok.count(":") >= 2 else ("set" if _tok else "off")
+    logging.info(
+        "Payments: stars on, rub %s, receipt %s",
+        _mode, "on" if cfg.payment_receipt else "off",
+    )
+
     bot = Bot(
         token=cfg.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
