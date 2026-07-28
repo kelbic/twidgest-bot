@@ -42,15 +42,9 @@ router = Router(name="billing")
 
 _cfg = Config()
 
-# ВРЕМЕННО: витрина рублёвых цен для проверки ЮKassa (заявка 135189499).
-# Цена в ₽ и кнопка «💳» показываются без provider_token; по нажатию —
-# честный алерт «подключается». Убрать после боевого токена.
-RUB_SHOWCASE = True
-
-
 def rub_visible() -> bool:
-    """Показывать ли рублёвые цены: боевой токен или витрина."""
-    return bool(_cfg.payment_provider_token) or RUB_SHOWCASE
+    """Показывать ли рублёвые цены: есть боевой токен провайдера."""
+    return bool(_cfg.payment_provider_token)
 
 
 def price_display() -> str:
@@ -117,14 +111,9 @@ async def cmd_upgrade(message: Message) -> None:
     for ch in channels:
         lines.append(f"<b>{html.escape(ch.title or '')}</b> (id={ch.id})\n  {_status_text(ch)}")
         st = channel_status(ch)
-        # В витрине (без боевого токена) админ-каналы тоже получают кнопки —
-        # иначе владельцу нечего показать на скриншотах для ЮKassa.
-        showcase_admin = (
-            st == "admin" and RUB_SHOWCASE and not _cfg.payment_provider_token
-        )
-        if st == "admin" and not showcase_admin:
+        if st == "admin":
             continue
-        verb = "Продлить" if st in ("paid", "trial", "admin") else "Активировать"
+        verb = "Продлить" if st in ("paid", "trial") else "Активировать"
         if rub_enabled:
             # Цена — первой: половинную кнопку Telegram режет с конца,
             # и «— 1490 ₽» после названия канала терялось.
