@@ -162,6 +162,16 @@ async def main() -> None:
     ])
     logging.info("Bot @%s started. Polling...", me.username)
 
+    # Самопроверка рублёвого провайдера: молчаливо сломанный токен иначе
+    # обнаружится только первым живым плательщиком.
+    if cfg.payment_provider_token:
+        from bot.handlers.billing import check_rub_provider
+        try:
+            await check_rub_provider(bot)
+            logging.info("Rub provider check: OK")
+        except Exception as exc:  # noqa: BLE001 — текст ошибки и есть диагноз
+            logging.error("Rub provider check FAILED: %s", exc)
+
     # Первый цикл сбора сразу — чтобы не ждать 30 минут после рестарта
     async def _startup_cycle():
         await run_collect_cycle(bot, cache, llm_default, llm_pro, vk_client)

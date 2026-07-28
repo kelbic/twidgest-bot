@@ -337,6 +337,29 @@ async def on_successful_payment(message: Message) -> None:
     logger.error("payment: unknown payload %r from %d", payload, uid)
 
 
+async def check_rub_provider(bot) -> tuple[bool, str]:
+    """Гоняет боевые параметры инвойса через провайдера, не проводя платёж.
+
+    createInvoiceLink валидирует provider_token, валюту, сумму и чек так же,
+    как реальный инвойс, но ссылку никто не получает. Возврат: (ок, детали).
+    """
+    link = await bot.create_invoice_link(
+        title=f"Проверка оплаты — {SLOT_DAYS} дней",
+        description="Тестовый инвойс, никому не отправляется.",
+        payload="paycheck",
+        provider_token=_cfg.payment_provider_token,
+        currency="RUB",
+        prices=[LabeledPrice(
+            label=f"{SLOT_DAYS} дней автопостинга",
+            amount=_cfg.price_rub * 100,
+        )],
+        need_email=_cfg.payment_need_email or _cfg.payment_receipt,
+        send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+        provider_data=_receipt_provider_data(),
+    )
+    return True, link
+
+
 @router.message(Command("paycheck"))
 async def cmd_paycheck(message: Message) -> None:
     """Админ: проверка рублёвого провайдера без платежа и без адресата.
@@ -356,20 +379,7 @@ async def cmd_paycheck(message: Message) -> None:
         f"(ждём LIVE или TEST)\nЧек: {'on' if _cfg.payment_receipt else 'off'}\n\n"
     )
     try:
-        link = await message.bot.create_invoice_link(
-            title=f"Проверка оплаты — {SLOT_DAYS} дней",
-            description="Тестовый инвойс, никому не отправляется.",
-            payload="paycheck",
-            provider_token=token,
-            currency="RUB",
-            prices=[LabeledPrice(
-                label=f"{SLOT_DAYS} дней автопостинга",
-                amount=_cfg.price_rub * 100,
-            )],
-            need_email=_cfg.payment_need_email or _cfg.payment_receipt,
-            send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
-            provider_data=_receipt_provider_data(),
-        )
+        _, link = await check_rub_provider(message.bot)
     except Exception as exc:  # noqa: BLE001 — текст ошибки и есть диагноз
         logger.warning("paycheck failed: %s", exc)
         await message.answer(head + f"❌ Провайдер отверг инвойс:\n<code>{html.escape(str(exc))}</code>")
