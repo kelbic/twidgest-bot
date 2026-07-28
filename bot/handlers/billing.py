@@ -268,7 +268,7 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
             label=f"{SLOT_DAYS} дней автопостинга",
             amount=_cfg.price_rub * 100,
         )],
-        # С чеком e-mail обязателен: ЮKassa шлёт на него фискальный документ
+        # С чеком нужен контакт: на него ЮKassa шлёт фискальный документ
         need_email=_need_email,
         send_email_to_provider=_need_email,
         need_phone_number=_need_phone,
