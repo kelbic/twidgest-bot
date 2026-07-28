@@ -49,3 +49,23 @@ async def test_record_payment_rub_roundtrip(session_maker_fx):
         payments = await get_user_payments(session, 42)
         assert len(payments) == 1
         assert payment_amount_display(payments[0]) == "1490 ₽"
+
+
+def test_receipt_off_by_default(monkeypatch):
+    import bot.handlers.billing as b
+    monkeypatch.setattr(b._cfg, "payment_receipt", False, raising=False)
+    assert b._receipt_provider_data() is None
+
+
+def test_receipt_shape_when_enabled(monkeypatch):
+    import json
+    import bot.handlers.billing as b
+    monkeypatch.setattr(b._cfg, "payment_receipt", True, raising=False)
+    monkeypatch.setattr(b._cfg, "payment_vat_code", 1, raising=False)
+    monkeypatch.setattr(b._cfg, "price_rub", 1490, raising=False)
+
+    item = json.loads(b._receipt_provider_data())["receipt"]["items"][0]
+    # Сумма позиции обязана совпадать с суммой инвойса, иначе ЮKassa отклонит чек
+    assert item["amount"] == {"value": "1490.00", "currency": "RUB"}
+    assert item["quantity"] == "1.00"
+    assert item["vat_code"] == 1

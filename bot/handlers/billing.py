@@ -8,6 +8,7 @@ Legacy-ветка "sub:<tier>" оставлена для старых неопл
 from __future__ import annotations
 
 import html
+import json
 import logging
 
 from aiogram import F, Router
@@ -173,6 +174,31 @@ async def _own_channel_from_callback(callback: CallbackQuery) -> Channel | None:
     return channel
 
 
+def _receipt_provider_data() -> str | None:
+    """Чек 54-ФЗ для ЮKassa. None, если фискализация выключена.
+
+    E-mail покупателя Telegram подставляет сам при need_email +
+    send_email_to_provider, поэтому в чеке только позиция.
+    """
+    if not _cfg.payment_receipt:
+        return None
+    return json.dumps({
+        "receipt": {
+            "items": [{
+                "description": f"Автопостинг канала, {SLOT_DAYS} дней",
+                "quantity": "1.00",
+                "amount": {
+                    "value": f"{_cfg.price_rub}.00",
+                    "currency": "RUB",
+                },
+                "vat_code": _cfg.payment_vat_code,
+                "payment_mode": "full_payment",
+                "payment_subject": "service",
+            }],
+        },
+    }, ensure_ascii=False)
+
+
 def _invoice_texts(channel: Channel) -> tuple[str, str]:
     return (
         f"Канал «{channel.title[:28]}» — {SLOT_DAYS} дней",
@@ -231,8 +257,10 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
             label=f"{SLOT_DAYS} дней автопостинга",
             amount=_cfg.price_rub * 100,
         )],
-        need_email=_cfg.payment_need_email,
-        send_email_to_provider=_cfg.payment_need_email,
+        # С чеком e-mail обязателен: ЮKassa шлёт на него фискальный документ
+        need_email=_cfg.payment_need_email or _cfg.payment_receipt,
+        send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+        provider_data=_receipt_provider_data(),
     )
 
 

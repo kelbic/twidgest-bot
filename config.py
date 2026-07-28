@@ -69,5 +69,14 @@ class Config:
     payment_need_email: bool = field(
         default_factory=lambda: os.getenv("PAYMENT_NEED_EMAIL", "0") == "1"
     )
+    # 1 = слать ЮKassa чек (provider_data.receipt). Включать, если в магазине
+    # включена фискализация — иначе платёж отклоняется «receipt is required».
+    payment_receipt: bool = field(
+        default_factory=lambda: os.getenv("PAYMENT_RECEIPT", "0") == "1"
+    )
+    # Ставка НДС для чека: 1 = без НДС (самозанятый/УСН), 2 = 0%, 6 = 20%
+    payment_vat_code: int = field(
+        default_factory=lambda: int(os.getenv("PAYMENT_VAT_CODE", "1"))
+    )
 
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
