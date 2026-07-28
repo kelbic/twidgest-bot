@@ -42,6 +42,10 @@ router = Router(name="billing")
 
 _cfg = Config()
 
+# Минимум рублёвого счёта в Telegram Payments (currencies.json, RUB)
+MIN_RUB = 60
+
+
 def rub_visible() -> bool:
     """Показывать ли рублёвые цены: есть боевой токен провайдера."""
     return bool(_cfg.payment_provider_token)
@@ -327,13 +331,14 @@ async def on_successful_payment(message: Message) -> None:
     logger.error("payment: unknown payload %r from %d", payload, uid)
 
 
-async def check_rub_provider(bot) -> tuple[bool, str]:
+async def check_rub_provider(bot) -> str:
     """Гоняет боевые параметры инвойса через провайдера, не проводя платёж.
 
     createInvoiceLink валидирует provider_token, валюту, сумму и чек так же,
-    как реальный инвойс, но ссылку никто не получает. Возврат: (ок, детали).
+    как реальный инвойс. Ссылку наружу не отдаём — payload у неё не «slot:»,
+    так что оплата по ней всё равно упрётся в pre-checkout. Бросает при отказе.
     """
-    link = await bot.create_invoice_link(
+    return await bot.create_invoice_link(
         title=f"Проверка оплаты — {SLOT_DAYS} дней",
         description="Тестовый инвойс, никому не отправляется.",
         payload="paycheck",
@@ -347,7 +352,6 @@ async def check_rub_provider(bot) -> tuple[bool, str]:
         send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
         provider_data=_receipt_provider_data(),
     )
-    return True, link
 
 
 async def _send_test_invoice(message: Message, amount_rub: int) -> None:
@@ -364,21 +368,28 @@ async def _send_test_invoice(message: Message, amount_rub: int) -> None:
     if channel is None:
         await message.answer("Нет ни одного канала — не к чему привязать платёж.")
         return
-    await message.bot.send_invoice(
-        chat_id=message.from_user.id,
-        title=f"Проверка оплаты — {amount_rub} ₽",
-        description=(
-            f"Тестовый платёж по каналу «{channel.title[:40]}». "
-            f"Проходит через ЮKassa как обычная покупка."
-        ),
-        payload=f"slot:{channel.id}",
-        provider_token=_cfg.payment_provider_token,
-        currency="RUB",
-        prices=[LabeledPrice(label="Проверка оплаты", amount=amount_rub * 100)],
-        need_email=_cfg.payment_need_email or _cfg.payment_receipt,
-        send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
-        provider_data=_receipt_provider_data(amount_rub),
-    )
+    try:
+        await message.bot.send_invoice(
+            chat_id=message.from_user.id,
+            title=f"Проверка оплаты — {amount_rub} ₽",
+            description=(
+                f"Тестовый платёж по каналу «{channel.title[:40]}». "
+                f"Проходит через ЮKassa как обычная покупка."
+            ),
+            payload=f"slot:{channel.id}",
+            provider_token=_cfg.payment_provider_token,
+            currency="RUB",
+            prices=[LabeledPrice(label="Проверка оплаты", amount=amount_rub * 100)],
+            need_email=_cfg.payment_need_email or _cfg.payment_receipt,
+            send_email_to_provider=_cfg.payment_need_email or _cfg.payment_receipt,
+            provider_data=_receipt_provider_data(amount_rub),
+        )
+    except Exception as exc:  # noqa: BLE001 — молчаливый отказ хуже текста ошибки
+        logger.warning("test invoice %d RUB failed: %s", amount_rub, exc)
+        await message.answer(
+            f"❌ Telegram отклонил счёт:\n<code>{html.escape(str(exc))}</code>"
+        )
+        return
     await message.answer(
         f"Отправил инвойс на {amount_rub} ₽ по каналу «{html.escape(channel.title or '')}». "
         f"Оплати — проверим весь путь: списание, чек на e-mail и запись в /payments."
@@ -402,8 +413,13 @@ async def cmd_paycheck(message: Message, command: CommandObject) -> None:
 
     arg = (command.args or "").strip()
     if arg:
-        if not arg.isdigit() or not 1 <= int(arg) <= 10000:
-            await message.answer("Сумма — целое число рублей от 1 до 10000.")
+        # Нижняя граница — от Telegram: рублёвые счета меньше ~60 ₽ он
+        # заворачивает с CURRENCY_TOTAL_AMOUNT_INVALID
+        if not arg.isdigit() or not MIN_RUB <= int(arg) <= 10000:
+            await message.answer(
+                f"Сумма — целое число рублей от {MIN_RUB} до 10000 "
+                f"(меньше {MIN_RUB} ₽ Telegram не пропускает)."
+            )
             return
         await _send_test_invoice(message, int(arg))
         return
@@ -413,12 +429,18 @@ async def cmd_paycheck(message: Message, command: CommandObject) -> None:
         f"(ждём LIVE или TEST)\nЧек: {'on' if _cfg.payment_receipt else 'off'}\n\n"
     )
     try:
-        _, link = await check_rub_provider(message.bot)
+        await check_rub_provider(message.bot)
     except Exception as exc:  # noqa: BLE001 — текст ошибки и есть диагноз
         logger.warning("paycheck failed: %s", exc)
         await message.answer(head + f"❌ Провайдер отверг инвойс:\n<code>{html.escape(str(exc))}</code>")
         return
-    await message.answer(head + f"✅ Провайдер принял инвойс.\nСсылка (можно оплатить): {link}")
+    # Ссылку наружу не даём: её payload не «slot:», платёж по ней отклонится
+    # на pre-checkout — выглядит рабочей, а ведёт в тупик.
+    await message.answer(
+        head + "✅ Провайдер принял параметры (платёж не создавался).\n"
+        f"Сквозная проверка: <code>/paycheck {MIN_RUB}</code> — придёт "
+        "настоящий счёт по первому каналу."
+    )
 
 
 @router.message(Command("payments"))
