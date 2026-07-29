@@ -740,8 +740,10 @@ async def cmd_paycheck(message: Message, command: CommandObject) -> None:
         return
 
     arg = (command.args or "").strip().lower()
-    if arg.startswith("sbp"):
-        await _paycheck_sbp(message, arg.removeprefix("sbp").strip())
+    # «spb» и кириллица — живые опечатки с первого же прогона (СПБ ≠ СБП)
+    head, _, rest = arg.partition(" ")
+    if head in ("sbp", "spb", "сбп", "спб"):
+        await _paycheck_sbp(message, rest.strip())
         return
     if arg:
         # Нижняя граница — от Telegram: рублёвые счета меньше ~60 ₽ он
