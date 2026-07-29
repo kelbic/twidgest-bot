@@ -83,5 +83,15 @@ class Config:
     payment_contact: str = field(
         default_factory=lambda: os.getenv("PAYMENT_CONTACT", "phone")
     )
+    # Прямая интеграция с API ЮKassa — для СБП: в нативной телеграм-форме
+    # (sendInvoice) его не бывает в принципе, только карта/SberPay/ЮMoney.
+    # Секретный ключ выпускается в ЛК («Ключи API») и живёт только в .env.
+    # Обе переменные пустые = кнопки СБП нет, остальная оплата не трогается.
+    yookassa_shop_id: str = field(
+        default_factory=lambda: os.getenv("YOOKASSA_SHOP_ID", "")
+    )
+    yookassa_secret_key: str = field(
+        default_factory=lambda: os.getenv("YOOKASSA_SECRET_KEY", "")
+    )
 
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))

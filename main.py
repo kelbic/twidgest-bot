@@ -52,8 +52,9 @@ async def main() -> None:
     _tok = cfg.payment_provider_token
     _mode = _tok.split(":")[1] if _tok.count(":") >= 2 else ("set" if _tok else "off")
     logging.info(
-        "Payments: stars on, rub %s, receipt %s",
+        "Payments: stars on, rub %s, receipt %s, sbp %s",
         _mode, "on" if cfg.payment_receipt else "off",
+        "on" if (cfg.yookassa_shop_id and cfg.yookassa_secret_key) else "off",
     )
 
     bot = Bot(
@@ -171,6 +172,21 @@ async def main() -> None:
             logging.info("Rub provider check: OK")
         except Exception as exc:  # noqa: BLE001 — текст ошибки и есть диагноз
             logging.error("Rub provider check FAILED: %s", exc)
+
+    # СБП (прямой API ЮKassa): ссылка возврата — на чат бота; ключ проверяем
+    # тем же принципом «сломанное находит рестарт, а не плательщик»; хвосты
+    # pending-платежей, осиротевшие при рестарте, дочитываем поллером.
+    import bot.handlers.billing as billing_module
+    billing_module.BOT_USERNAME = me.username
+    if cfg.yookassa_shop_id and cfg.yookassa_secret_key:
+        from bot.handlers.billing import check_sbp_provider, resume_pending_sbp
+        try:
+            logging.info("SBP provider check: OK (%s)", await check_sbp_provider())
+        except Exception as exc:  # noqa: BLE001 — текст ошибки и есть диагноз
+            logging.error("SBP provider check FAILED: %s", exc)
+        resumed = await resume_pending_sbp(bot)
+        if resumed:
+            logging.info("SBP: resumed polling for %d pending payment(s)", resumed)
 
     # Первый цикл сбора сразу — чтобы не ждать 30 минут после рестарта
     async def _startup_cycle():

@@ -280,6 +280,30 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class RubPayment(Base):
+    """СБП-платёж через прямой API ЮKassa (не Telegram Payments).
+
+    Создаётся pending при выдаче ссылки на оплату; в succeeded переводится
+    ровно один раз (клейм под локом в billing) — это защита от двойного
+    продления, когда поллер и кнопка «проверить» узнают об оплате
+    одновременно. Telegram Payments сюда не пишет: у него свой путь
+    через successful_payment.
+    """
+
+    __tablename__ = "rub_payments"
+    __table_args__ = (
+        UniqueConstraint("yk_payment_id", name="uq_rub_payment_yk_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    yk_payment_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(Integer)
+    amount_rub: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class HealthNotification(Base):
     """Когда последний раз уведомляли юзера о проблемах с каналом.
 
