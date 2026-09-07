@@ -1,0 +1,99 @@
+mode: rule
+log-level: warning
+
+hosts:
+  ntc.party: 130.255.77.28
+
+dns:
+  enable: true
+  nameserver:
+    - https://dns.nextdns.io
+  use-system-hosts: true
+
+proxies:
+
+  - name: "Germany 🇩🇪"
+    type: ss
+    server: 138.124.90.144 
+    port: 9443
+    cipher: 2022-blake3-aes-128-gcm
+    password: "CZmowLZgiDTrrmpWc9dknQ=="
+    udp: true
+
+    plugin: shadow-tls
+    client-fingerprint: chrome
+    plugin-opts:
+      host: "captive.apple.com"
+      password: ""
+      version: 3
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    include-all: true
+
+rule-providers:
+  apple-system:
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN,api.smoot.apple.com
+      - DOMAIN,captive.apple.com
+      - DOMAIN,xp.apple.com
+      - DOMAIN,configuration.apple.com
+      - DOMAIN,guzzoni.apple.com
+      - DOMAIN,smp-device-content.apple.com
+      - DOMAIN,aod.itunes.apple.com
+      - DOMAIN,mesu.apple.com
+      - DOMAIN,api.smoot.apple.cn
+      - DOMAIN,gs-loc.apple.com
+      - DOMAIN,mvod.itunes.apple.com
+      - DOMAIN,streamingaudio.itunes.apple.com
+      - DOMAIN-SUFFIX,ess.apple.com
+      - DOMAIN-SUFFIX,push-apple.com.akadns.net
+      - DOMAIN-SUFFIX,push.apple.com
+      - DOMAIN-SUFFIX,lcdn-locator.apple.com
+      - DOMAIN-SUFFIX,lcdn-registration.apple.com
+      - DOMAIN-SUFFIX,ls.apple.com
+      - PROCESS-NAME,trustd
+      - PROCESS-NAME,netbiosd
+
+rules:
+  - GEOIP,LAN,DIRECT,no-resolve
+  - RULE-SET,apple-system,DIRECT
+  - GEOSITE,icloudprivaterelay,DIRECT
+  - DOMAIN,_test.local,REJECT
+
+  # Kino.pub
+  - DOMAIN-SUFFIX,cdntogo.net,DIRECT
+  # Docker mirrors
+  - DOMAIN-SUFFIX,mirror.gcr.io,DIRECT
+
+  # Aliexpress payments
+  - DOMAIN-SUFFIX,inplat-tech.com,DIRECT
+
+  # OneDrive
+  - DOMAIN-SUFFIX,my.microsoftpersonalcontent.com,DIRECT
+  # Misc
+  - DOMAIN-SUFFIX,vfsglobal.com,DIRECT
+  - DOMAIN-SUFFIX,izi.me,DIRECT
+  - DOMAIN-SUFFIX,iziyo.xyz,DIRECT
+
+  # Licard
+  - DOMAIN-SUFFIX,licard.com,DIRECT
+  # Tricolor
+  - DOMAIN-SUFFIX,tricolor.tv,DIRECT
+
+  # Misc
+  - DOMAIN-SUFFIX,wylsa.com,DIRECT
+  - DOMAIN-SUFFIX,wishmaster.me,DIRECT
+  - DOMAIN-SUFFIX,quantum-a.io,DIRECT
+  - DOMAIN-SUFFIX,lmru.tech,DIRECT
+  - DOMAIN-SUFFIX,imdt.pro,DIRECT
+
+  # Russia
+  - GEOSITE,category-ru,DIRECT
+  - GEOIP,RU,DIRECT,no-resolve
+
+  # Everything else
+  - MATCH,Proxy
