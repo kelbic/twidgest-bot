@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 from dataclasses import dataclass
 
 from core import metrics
@@ -13,6 +15,8 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.twitterapi.io"
+# Хэндл X: латиница/цифры/подчёркивание. Всё прочее в from: ломает запрос поиска.
+_USERNAME_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
 
 
 @dataclass
@@ -222,6 +226,47 @@ class TwitterClient:
                 logger.exception("Failed to parse tweet from @%s", username)
 
         logger.info("Fetched %d tweets for @%s", len(tweets), username)
+        return tweets
+
+    # Окно = окно, в котором твит ещё может уйти в публикацию: viral_picker берёт из
+    # очереди только tweet_created_at > now − 48ч. Старше — платить не за что.
+    RECENT_WINDOW_HOURS = 48
+
+    async def get_recent_tweets(self, username: str, limit: int = 20) -> list[Tweet] | None:
+        """Твиты @username за последние RECENT_WINDOW_HOURS (без ответов, с RT), новые первыми.
+
+        Почему не last_tweets: twitterapi.io биллит за КАЖДЫЙ возвращённый твит, а
+        last_tweets на каждом опросе отдаёт 20 последних, даже недельной давности. Поиск
+        по окну платит только за твиты окна (минимум 15 кредитов за запрос) и, как
+        last_tweets, обновляет лайки у всех твитов окна — на этом держится порог
+        min_likes в collector (недобравший твит не помечается обработанным и проходит
+        позже). Сверка 30.10 на живом API (4 аккаунта, окно 48ч): тот же набор id,
+        ретвиты включены, ответы отфильтрованы так же.
+
+        None — запрос не удался (≠ «твитов нет»): вызывающий откатывается на last_tweets.
+        """
+        if not _USERNAME_RE.fullmatch(username):
+            return None
+        since = int(time.time()) - self.RECENT_WINDOW_HOURS * 3600
+        metrics.inc("tw_api_calls")
+        data = await self._request_with_retry(
+            "GET", f"{BASE_URL}/twitter/tweet/advanced_search",
+            params={"query": f"from:{username} -filter:replies since_time:{since}",
+                    "queryType": "Latest"},
+            timeout=30,
+        )
+        if not isinstance(data, dict) or not isinstance(data.get("tweets"), list):
+            return None
+        raw = data["tweets"]
+        metrics.inc("tw_tweets", len(raw))
+        tweets: list[Tweet] = []
+        for item in raw[:limit]:
+            try:
+                tweets.append(Tweet.from_api(item))
+            except Exception:
+                logger.exception("Failed to parse searched tweet from @%s", username)
+        logger.info("Fetched %d recent tweets for @%s (search %dh)",
+                    len(tweets), username, self.RECENT_WINDOW_HOURS)
         return tweets
 
     async def search_users(self, query: str, limit: int = 20) -> list[dict]:

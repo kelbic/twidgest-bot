@@ -84,8 +84,11 @@ class TwitterCache:
             if entry and (time.time() - entry.fetched_at) < effective:
                 return entry.tweets
 
-            # Свежий fetch
-            tweets = await self.client.get_user_tweets(username, limit=limit)
+            # Свежий fetch: поиск по окну свежести (биллинг только за твиты окна);
+            # не ответил — старый last_tweets, чтобы источник не ослеп.
+            tweets = await self.client.get_recent_tweets(username, limit=limit)
+            if tweets is None:
+                tweets = await self.client.get_user_tweets(username, limit=limit)
             new_ids = frozenset(t.id for t in tweets)
 
             # Считаем новый stale_count относительно предыдущей записи
