@@ -46,6 +46,14 @@ async def test_query_is_windowed_without_replies(client, monkeypatch):
     assert seen["params"]["queryType"] == "Latest"
 
 
+def test_window_never_narrower_than_two_max_poll_intervals():
+    """Твит, вышедший сразу после опроса тихого источника (TTL до MAX_TTL), должен
+    дожить в окне до следующего опроса — иначе пропуск по построению."""
+    from core.twitter_cache import MAX_TTL_SECONDS
+    assert tc.TwitterClient.RECENT_WINDOW_HOURS * 3600 >= 2 * MAX_TTL_SECONDS
+    assert tc.TwitterClient.RECENT_WINDOW_HOURS == 12, "дефолт окна сменился без замера"
+
+
 async def test_error_is_none_and_empty_is_empty(client, monkeypatch):
     async def err(*a, **k):
         return None

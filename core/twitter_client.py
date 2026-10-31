@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -228,9 +229,14 @@ class TwitterClient:
         logger.info("Fetched %d tweets for @%s", len(tweets), username)
         return tweets
 
-    # Окно = окно, в котором твит ещё может уйти в публикацию: viral_picker берёт из
-    # очереди только tweet_created_at > now − 48ч. Старше — платить не за что.
-    RECENT_WINDOW_HOURS = 48
+    # Окно опроса. Каждый опрос заново оплачивает ВСЕ твиты окна (так освежаются лайки
+    # для порога min_likes), поэтому цена ∝ ширине окна. Было 48ч (= окно viral_picker):
+    # 30.10–31.10 вышло 9.6 твита/вызов ≈ $14/мес. Замер 31.10 в установившемся режиме
+    # (n=56, без бэклога холодного старта): возраст твита при постановке в очередь p50
+    # 1.0ч, p90 4.3ч, p95 5.4ч, max 16.6ч; старше 12ч — 1.8%. 12ч ≥ 2× MAX_TTL кэша (6ч):
+    # твит между двумя опросами тихого источника не успевает выпасть из окна.
+    # Переопределение без кода: TW_RECENT_WINDOW_HOURS.
+    RECENT_WINDOW_HOURS = int(os.environ.get("TW_RECENT_WINDOW_HOURS", "12"))
 
     async def get_recent_tweets(self, username: str, limit: int = 20) -> list[Tweet] | None:
         """Твиты @username за последние RECENT_WINDOW_HOURS (без ответов, с RT), новые первыми.
