@@ -42,6 +42,38 @@ logger = logging.getLogger(__name__)
 
 _cfg_unsplash = Config()
 
+# ОПРОС ПО ТЕМПУ КАНАЛА (31.10). Темп публикации выбирает владелец (/setinterval), а
+# опрос был один на всех — каждые 30 мин. Канал, постящий раз в 4ч, оплачивал опрос
+# своих источников в 8 раз чаще, чем ему нужно. Теперь базовый TTL источника = половина
+# интервала его самого частого канала в пределах [30 мин, 3ч]; отступление тихих
+# источников (до 6ч) — поверх, как раньше. Окно поиска 12ч ≥ 2× 6ч (twitter_client).
+POLL_TTL_MIN_SEC = 1800
+POLL_TTL_MAX_SEC = 10800
+
+
+def channel_poll_need_minutes(channel) -> int | None:
+    """Как часто каналу нужен свежий кандидат, мин. None — как раньше (30 мин)."""
+    from workers.viral_picker import pacing_minutes  # поздний импорт: без цикла на старте
+    if channel.mode == "hybrid":
+        return pacing_minutes(channel)
+    if channel.mode == "digest":
+        return int(channel.digest_interval_hours or 12) * 60
+    return None   # single: пост уходит сразу из сборщика — опрос и есть задержка
+
+
+def source_poll_ttl(channels) -> dict[str, int]:
+    """{twitter_username: базовый TTL, с} — минимум по всем каналам источника."""
+    out: dict[str, int] = {}
+    for ch in channels:
+        need = channel_poll_need_minutes(ch)
+        ttl = POLL_TTL_MIN_SEC if need is None else max(
+            POLL_TTL_MIN_SEC, min(POLL_TTL_MAX_SEC, need * 60 // 2))
+        for src in ch.channel_sources:
+            if src.is_active and src.source_type != "vk":
+                u = src.twitter_username.lower()
+                out[u] = min(out.get(u, ttl), ttl)
+    return out
+
 
 async def _get_active_channels(session: AsyncSession) -> list[Channel]:
     """Все активные каналы у не-заблокированных юзеров с привязанным target."""
@@ -119,11 +151,17 @@ async def run_collect_cycle(
     # дублирующихся ключей — лишний fetch, не гонка данных.
     fetch_results: dict[str, list[Tweet]] = {}
     fetch_sem = asyncio.Semaphore(5)
+    poll_ttl = source_poll_ttl(channels)
+    _dist: dict[int, int] = {}
+    for _t in poll_ttl.values():
+        _dist[_t // 60] = _dist.get(_t // 60, 0) + 1
+    logger.info("poll base TTL, мин → источников: %s", dict(sorted(_dist.items())))
 
     async def _fetch_one(username: str) -> None:
         async with fetch_sem:
             try:
-                fetch_results[username] = await cache.get_tweets(username, limit=20)
+                fetch_results[username] = await cache.get_tweets(
+                    username, limit=20, base_ttl=poll_ttl.get(username))
             except Exception:
                 logger.exception("Cache fetch failed for @%s", username)
                 fetch_results[username] = []

@@ -46,6 +46,8 @@ class _CacheEntry:
     # stale_count = сколько раз подряд получили только дубликаты.
     # Используется для exponential backoff TTL.
     stale_count: int = 0
+    # базовый TTL источника на момент выборки (для честной stats(); см. get_tweets)
+    base_ttl: int = BASE_TTL_SECONDS
 
 
 class TwitterCache:
@@ -58,13 +60,18 @@ class TwitterCache:
         # не сделать 100 параллельных запросов
         self._fetch_locks: dict[str, asyncio.Lock] = {}
 
-    async def get_tweets(self, username: str, limit: int = 20) -> list[Tweet]:
+    async def get_tweets(self, username: str, limit: int = 20,
+                         base_ttl: int | None = None) -> list[Tweet]:
+        """base_ttl — базовый TTL этого источника (по темпу публикации его каналов,
+        см. collector.source_poll_ttl); None — общий self.ttl. Отступление тихих
+        источников (×2^stale до MAX_TTL) работает поверх него как раньше."""
         username = username.lstrip("@").lower()
         now = time.time()
+        base = base_ttl or self.ttl
 
         # Проверяем свежий кэш с adaptive TTL
         entry = self._cache.get(username)
-        effective = _effective_ttl(entry.stale_count, self.ttl) if entry else self.ttl
+        effective = _effective_ttl(entry.stale_count, base) if entry else base
         if entry and (now - entry.fetched_at) < effective:
             metrics.inc("tw_cache_hits")
             logger.debug(
@@ -80,7 +87,7 @@ class TwitterCache:
         async with lock:
             # Может быть, пока ждали, кто-то уже зафетчил
             entry = self._cache.get(username)
-            effective = _effective_ttl(entry.stale_count, self.ttl) if entry else self.ttl
+            effective = _effective_ttl(entry.stale_count, base) if entry else base
             if entry and (time.time() - entry.fetched_at) < effective:
                 return entry.tweets
 
@@ -117,7 +124,7 @@ class TwitterCache:
 
             # Логируем изменение stale_count (только когда реально меняется)
             if entry is not None and new_stale != entry.stale_count:
-                next_ttl = _effective_ttl(new_stale, self.ttl)
+                next_ttl = _effective_ttl(new_stale, base)
                 logger.info(
                     "@%s stale_count %d → %d, next TTL = %ds",
                     username, entry.stale_count, new_stale, next_ttl,
@@ -128,6 +135,7 @@ class TwitterCache:
                 fetched_at=time.time(),
                 tweet_ids=new_ids,
                 stale_count=new_stale,
+                base_ttl=base,
             )
             logger.info(
                 "Fetched & cached @%s: %d tweets (stale=%d)",
@@ -140,7 +148,7 @@ class TwitterCache:
         ttl_buckets: dict[int, int] = {}
         stale_distribution: dict[int, int] = {}
         for entry in self._cache.values():
-            eff = _effective_ttl(entry.stale_count, self.ttl)
+            eff = _effective_ttl(entry.stale_count, entry.base_ttl)
             ttl_buckets[eff] = ttl_buckets.get(eff, 0) + 1
             stale_distribution[entry.stale_count] = (
                 stale_distribution.get(entry.stale_count, 0) + 1
