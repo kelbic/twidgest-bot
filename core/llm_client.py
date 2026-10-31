@@ -111,6 +111,17 @@ class _NonRetryableError(Exception):
     pass
 
 
+class _ReasoningMandatory(_NonRetryableError):
+    """Модель не даёт выключить размышления (HTTP 400 «Reasoning is mandatory»).
+
+    Подкласс _NonRetryableError: повторный отказ уже БЕЗ флага — не ретраится."""
+
+
+# Запас max_tokens под размышления у моделей, где их нельзя выключить: иначе
+# размышления съедают весь бюджет и content приходит null (finish_reason=length).
+REASONING_HEADROOM_TOKENS = 1024
+
+
 @dataclass
 class DigestTweet:
     """Твит для дайджеста."""
@@ -136,6 +147,11 @@ class OpenRouterClient:
         self.max_attempts = max_attempts
         self.base_delay = base_delay
         self.timeout = timeout
+        # 31.10: haiku-5.5 на длинных промптах сам включает размышления и съедает ими
+        # max_tokens (30 у подбора картинки, 500 у переписывания) → content=null:
+        # 36 пустых ответов за 17ч, каждый ×3 ретрая. Размышления выключаем; модели,
+        # где они обязательны (sonnet-5.5), помечаются по первому отказу.
+        self._reasoning_mandatory = False
         self._headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -470,11 +486,23 @@ class OpenRouterClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        payload = self._apply_reasoning_policy(payload)
 
         last_error = "unknown"
         for attempt in range(1, self.max_attempts + 1):
             try:
-                result = await self._single_request(payload)
+                try:
+                    result = await self._single_request(payload)
+                except _ReasoningMandatory:
+                    if self._reasoning_mandatory:
+                        raise
+                    # Переход — внутри ТОЙ ЖЕ попытки: при max_attempts=1 он иначе
+                    # съедал единственную попытку и вызов возвращал None.
+                    logger.info("OpenRouter: %s requires reasoning — keeping it on, +%d tokens",
+                                self.model, REASONING_HEADROOM_TOKENS)
+                    self._reasoning_mandatory = True
+                    payload = self._apply_reasoning_policy(payload)
+                    result = await self._single_request(payload)
                 if result is not None:
                     metrics.inc("llm_calls")
                     metrics.inc("llm_chars_in", len(dated_system) + len(user_prompt))
@@ -528,6 +556,8 @@ class OpenRouterClient:
                         return self._extract_content(data)
 
                     snippet = body[:300]
+                    if resp.status == 400 and "reasoning is mandatory" in body.lower():
+                        raise _ReasoningMandatory(snippet)
                     if resp.status in RETRYABLE_HTTP_CODES:
                         raise _RetryableError(f"HTTP {resp.status}: {snippet}")
                     raise _NonRetryableError(f"HTTP {resp.status}: {snippet}")
@@ -535,6 +565,17 @@ class OpenRouterClient:
             raise _RetryableError(f"timeout after {self.timeout}s") from exc
         except aiohttp.ClientError as exc:
             raise _RetryableError(f"network error: {exc}") from exc
+
+    def _apply_reasoning_policy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Размышления выключены; у модели, где они обязательны, — без флага и с запасом."""
+        # Применяется РОВНО раз к исходному запросу (в _call_with_retry или при переходе
+        # после отказа) — max_tokens здесь всегда исходный, запас не накапливается.
+        p = {k: v for k, v in payload.items() if k != "reasoning"}
+        if self._reasoning_mandatory:
+            p["max_tokens"] = int(payload["max_tokens"]) + REASONING_HEADROOM_TOKENS
+            return p
+        p["reasoning"] = {"enabled": False}
+        return p
 
     @staticmethod
     def _extract_content(data: dict[str, Any]) -> str | None:

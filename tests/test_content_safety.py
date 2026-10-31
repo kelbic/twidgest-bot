@@ -8,6 +8,9 @@ import pytest
 from config import Config
 from core.llm_client import OpenRouterClient
 
+# Каждый тест ходит в живой OpenRouter — по умолчанию исключён (pytest.ini addopts).
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture(scope="module")
 def llm():
