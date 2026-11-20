@@ -43,6 +43,7 @@ async def sm(tmp_path):
     CREATE_DIGEST_LIMIT.reset()
     channels._creating.clear()
     yield dbs.session_maker()
+    await dbs._engine.dispose()  # иначе потоки aiosqlite переживают event loop теста
     dbs._engine = dbs._session_maker = None
 
 

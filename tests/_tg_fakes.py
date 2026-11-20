@@ -17,14 +17,16 @@ from datetime import datetime, timezone
 
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
-from aiogram.exceptions import TelegramForbiddenError
-from aiogram.methods import EditMessageText, GetMe, SendMessage
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.methods import EditMessageText, GetChatMember, GetMe, SendMessage
 from aiogram.types import (
     CallbackQuery,
     Chat,
     ChatMemberAdministrator,
     ChatMemberBanned,
     ChatMemberLeft,
+    ChatMemberMember,
+    ChatMemberOwner,
     ChatMemberUpdated,
     Message,
     MessageOriginChannel,
@@ -62,11 +64,22 @@ class MockedBot(Bot):
         super().__init__(token=f"{BOT_ID}:TEST", session=NoNetworkSession())
         self.calls: list = []
         self.forbidden_chats: set[int] = set()
+        # (chat_id, user_id) → "creator" | "administrator" | "member" | Exception.
+        # Не задано → TelegramBadRequest «chat not found» (бота нет в чате).
+        self.chat_members: dict[tuple[int, int], object] = {}
 
     async def __call__(self, method, request_timeout=None):  # noqa: ANN001
         self.calls.append(method)
         if isinstance(method, GetMe):
             return BOT_USER
+        if isinstance(method, GetChatMember):
+            key = (int(method.chat_id), int(method.user_id))
+            status = self.chat_members.get(
+                key, TelegramBadRequest(method=method, message="Bad Request: chat not found")
+            )
+            if isinstance(status, Exception):
+                raise status
+            return chat_member(int(method.user_id), status)
         if isinstance(method, (SendMessage, EditMessageText)):
             chat_id = int(method.chat_id)
             if chat_id in self.forbidden_chats:
@@ -157,6 +170,23 @@ def bot_admin(can_post: bool = True) -> ChatMemberAdministrator:
         can_edit_stories=False, can_delete_stories=False,
         can_post_messages=can_post,
     )
+
+
+def chat_member(user_id: int, status: str):
+    user = tg_user(user_id)
+    if status == "creator":
+        return ChatMemberOwner(user=user, is_anonymous=False)
+    if status == "administrator":
+        return ChatMemberAdministrator(
+            user=user, can_be_edited=False, is_anonymous=False,
+            can_manage_chat=True, can_delete_messages=False,
+            can_manage_video_chats=False, can_restrict_members=False,
+            can_promote_members=False, can_change_info=False,
+            can_invite_users=False, can_post_stories=False,
+            can_edit_stories=False, can_delete_stories=False,
+            can_post_messages=True,
+        )
+    return ChatMemberMember(user=user)
 
 
 def bot_left() -> ChatMemberLeft:

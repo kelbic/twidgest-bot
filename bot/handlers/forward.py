@@ -3,7 +3,8 @@
 Основной путь — кнопка «Подключить Telegram-канал» (t.me/<бот>?startchannel):
 юзер выбирает канал, Telegram делает бота админом и шлёт апдейт my_chat_member,
 где from_user — тот, кто добавил бота. Запасной путь — переслать боту пост из
-канала (форвард). Оба пути сходятся в offer_channel → link_channel, логика
+канала (форвард); там и в /bind права юзера проверяются отдельно
+(getChatMember: creator/administrator). Оба пути сходятся в offer_channel → link_channel, логика
 привязки одна.
 
 Решение по юзеру (только его собственные дайджесты, чужие не трогаем никогда):
@@ -376,6 +377,24 @@ async def cb_link_choice(callback: CallbackQuery, bot: Bot) -> None:
 # Запасной путь: переслать боту пост из канала
 # --------------------------------------------------------------------------- #
 
+NOT_CHAT_ADMIN = (
+    "Привязать можно только канал, где ты сам администратор, а я — админ "
+    "с правом публиковать посты."
+)
+
+
+async def user_is_chat_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
+    """Юзер — владелец/админ чата? Пересылку поста из публичного канала может
+    сделать кто угодно, а /bind принимает любой chat_id — без этой проверки
+    чужой канал (где бот уже админ) можно было бы привязать к своему дайджесту.
+    Любая ошибка запроса (бота нет в чате, нет прав, чат не найден) — «нет»."""
+    try:
+        member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+    except Exception as exc:  # noqa: BLE001 — TelegramBadRequest/Forbidden/сеть: не привязываем
+        logger.info("admin check: chat %s user %s failed: %s", chat_id, user_id, exc)
+        return False
+    return getattr(member, "status", None) in {"creator", "administrator"}
+
 
 def _forwarded_chat(message: Message) -> Chat | None:
     origin = message.forward_origin
@@ -405,6 +424,12 @@ async def handle_forwarded_from_channel(message: Message, bot: Bot) -> None:
         )
         return
 
+    # Только канал, где юзер сам админ. Проверка — ДО offer_channel: отвергнутый
+    # канал не попадает и в строки ожидания, значит его не выбрать и через lnk:
+    if not await user_is_chat_admin(bot, chat.id, message.from_user.id):
+        await message.answer(NOT_CHAT_ADMIN)
+        return
+
     # Регистрируем юзера (форвард мог прийти раньше /start)
     async with session_maker()() as session:
         await get_or_create_user(
@@ -416,7 +441,7 @@ async def handle_forwarded_from_channel(message: Message, bot: Bot) -> None:
 # Ручная привязка для тех, кто знает chat_id (в /help не показывается).
 # Command(...) сам срезает «@бот» в группах и не путает /bind с /bindXXX.
 @router.message(Command("bind"))
-async def cmd_bind(message: Message, command: CommandObject) -> None:
+async def cmd_bind(message: Message, command: CommandObject, bot: Bot) -> None:
     """Ручная привязка: /bind <chat_id> <номер дайджеста>"""
     if message.from_user is None:
         return
@@ -435,10 +460,14 @@ async def cmd_bind(message: Message, command: CommandObject) -> None:
 
     async with session_maker()() as session:
         all_channels = await get_user_channels(session, message.from_user.id)
-        target_channel = next((c for c in all_channels if c.id == channel_id), None)
-        if target_channel is None:
-            await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
-            return
+    target_channel = next((c for c in all_channels if c.id == channel_id), None)
+    if target_channel is None:
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
+        return
+    if not await user_is_chat_admin(bot, chat_id, message.from_user.id):
+        await message.answer(NOT_CHAT_ADMIN)
+        return
+    async with session_maker()() as session:
         await set_channel_target(session, channel_id, chat_id, None)
 
     await message.answer(

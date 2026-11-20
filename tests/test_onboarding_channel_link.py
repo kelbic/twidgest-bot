@@ -46,6 +46,7 @@ async def sm(tmp_path):
     CREATE_DIGEST_LIMIT.reset()
     channels._creating.clear()
     yield dbs.session_maker()
+    await dbs._engine.dispose()  # иначе потоки aiosqlite переживают event loop теста
     dbs._engine = dbs._session_maker = None
 
 
@@ -312,9 +313,11 @@ async def test_group_membership_is_not_a_channel_link(sm, dp, bot):
 
 # ── запасной путь: переслать пост из канала ────────────────────────────────
 
-async def test_forward_fallback_uses_same_linking(sm, dp, bot):
+@pytest.mark.parametrize("status", ["administrator", "creator"])
+async def test_forward_fallback_uses_same_linking(sm, dp, bot, status):
     from aiogram.types import Chat
     await _seed(sm, 3012, digests=[(121, 3012, "Форвард", None)])
+    bot.chat_members[(CHAT, 3012)] = status  # юзер — админ/владелец канала
 
     await dp.feed_update(bot, msg_update(
         "тест", user_id=3012,
@@ -335,3 +338,101 @@ async def test_forward_in_group_is_ignored(sm, dp, bot):
     ))
     assert (await _digest(sm, 131)).target_chat_id is None
     assert bot.api_calls() == []
+
+
+# ── запасной путь и /bind: только канал, где юзер сам админ ────────────────
+
+NOT_ADMIN = "Привязать можно только канал, где ты сам администратор"
+
+
+def _forbidden():
+    from aiogram.exceptions import TelegramForbiddenError
+    from aiogram.methods import GetChatMember
+    return TelegramForbiddenError(
+        method=GetChatMember(chat_id=CHAT, user_id=1), message="Forbidden: bot is not a member",
+    )
+
+
+def _bad_request():
+    from aiogram.exceptions import TelegramBadRequest
+    from aiogram.methods import GetChatMember
+    return TelegramBadRequest(
+        method=GetChatMember(chat_id=CHAT, user_id=1), message="Bad Request: chat not found",
+    )
+
+
+async def _snapshot(sm):
+    async with sm() as s:
+        rows = (await s.execute(select(Channel).order_by(Channel.id))).scalars().all()
+        return [(c.id, c.target_chat_id, c.target_chat_title, c.is_active) for c in rows]
+
+
+@pytest.mark.parametrize("member", ["member", "unset", "bad_request", "forbidden"])
+async def test_forward_from_foreign_channel_is_rejected(sm, dp, bot, member):
+    from aiogram.types import Chat
+    await _seed(sm, 3020, digests=[(201, 3020, "Мой", None)])
+    if member == "member":
+        bot.chat_members[(CHAT, 3020)] = "member"          # просто подписчик
+    elif member == "bad_request":
+        bot.chat_members[(CHAT, 3020)] = _bad_request()    # бота нет в канале
+    elif member == "forbidden":
+        bot.chat_members[(CHAT, 3020)] = _forbidden()      # нет прав / выгнали
+    before = await _snapshot(sm)
+
+    await dp.feed_update(bot, msg_update(
+        "тест", user_id=3020,
+        forward_from=Chat(id=CHAT, type="channel", title="Чужой канал"),
+    ))
+
+    assert await _snapshot(sm) == before
+    assert await _pending(sm) == []
+    [reply] = bot.texts(3020)
+    assert NOT_ADMIN in reply
+    assert bot.messages(CHAT) == []  # в чужой канал ничего не ушло
+
+
+async def test_rejected_forward_cannot_be_picked_via_lnk(sm, dp, bot):
+    from aiogram.types import Chat
+    # два дайджеста без канала: при успехе был бы выбор кнопками
+    await _seed(sm, 3021, digests=[(211, 3021, "A", None), (212, 3021, "B", None)])
+    bot.chat_members[(CHAT, 3021)] = "member"
+
+    await dp.feed_update(bot, msg_update(
+        "тест", user_id=3021,
+        forward_from=Chat(id=CHAT, type="channel", title="Чужой канал"),
+    ))
+    assert await _pending(sm) == []
+
+    # подделанная кнопка выбора на отвергнутый канал — отказ
+    before = await _snapshot(sm)
+    await dp.feed_update(bot, cb_update(f"lnk:211:{CHAT}", user_id=3021))
+    assert await _snapshot(sm) == before
+
+
+@pytest.mark.parametrize("status", ["administrator", "creator"])
+async def test_bind_links_when_user_is_chat_admin(sm, dp, bot, status):
+    await _seed(sm, 3022, digests=[(221, 3022, "Ручной", None)])
+    bot.chat_members[(CHAT, 3022)] = status
+
+    await dp.feed_update(bot, msg_update(f"/bind {CHAT} 221", user_id=3022))
+
+    assert (await _digest(sm, 221)).target_chat_id == CHAT
+    assert "подключён к дайджесту «Ручной»" in bot.texts(3022)[-1]
+
+
+@pytest.mark.parametrize("member", ["member", "unset", "bad_request", "forbidden"])
+async def test_bind_rejected_when_user_is_not_chat_admin(sm, dp, bot, member):
+    await _seed(sm, 3023, digests=[(231, 3023, "Ручной", None)])
+    if member == "member":
+        bot.chat_members[(CHAT, 3023)] = "member"
+    elif member == "bad_request":
+        bot.chat_members[(CHAT, 3023)] = _bad_request()
+    elif member == "forbidden":
+        bot.chat_members[(CHAT, 3023)] = _forbidden()
+    before = await _snapshot(sm)
+
+    await dp.feed_update(bot, msg_update(f"/bind {CHAT} 231", user_id=3023))
+
+    assert await _snapshot(sm) == before
+    [reply] = bot.texts(3023)
+    assert NOT_ADMIN in reply
