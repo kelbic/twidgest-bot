@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 # Лимиты: (window_seconds, max_calls)
-# Команды которые НЕ в словаре — без ограничений
+# Команды которые НЕ в словаре — без ограничений.
+# /createchannel здесь НЕТ: создание дайджеста лимитируется по факту успеха
+# (CREATE_DIGEST_LIMIT ниже) — ошибки ввода и опечатки не должны съедать лимит.
 COMMAND_LIMITS: dict[str, tuple[int, int]] = {
     # Дорогие AI-команды: 3 раза в 5 минут
-    "/createchannel": (300, 3),
     "/regenerate": (300, 3),
 
     # Скаут: LLM + платные fetch'и twitterapi.io — 3 раза в сутки
@@ -55,6 +56,11 @@ class RateLimitMiddleware(BaseMiddleware):
         if event.from_user is None or event.text is None:
             return await handler(event, data)
 
+        # Вне лички команды не исполняются (бот шлёт кнопку «настроить
+        # в личке») — и не должны тратить лимит.
+        if event.chat is not None and event.chat.type != "private":
+            return await handler(event, data)
+
         # Админу — без лимитов
         if (
             self._admin_user_id is not None
@@ -62,12 +68,9 @@ class RateLimitMiddleware(BaseMiddleware):
         ):
             return await handler(event, data)
 
-        # Извлекаем команду (первое слово, до пробела/аргументов)
-        cmd = event.text.split()[0].split("@")[0].lower()
-
-        # Команда из shortcut'ов вроде /createchannel_longevity → нормализуем
-        if cmd.startswith("/createchannel_"):
-            cmd = "/createchannel"
+        # Извлекаем команду (первое слово, до пробела/аргументов; @бот отрезаем)
+        parts = event.text.split()
+        cmd = parts[0].split("@")[0].lower() if parts else ""
 
         if cmd not in COMMAND_LIMITS:
             return await handler(event, data)
@@ -101,3 +104,40 @@ class RateLimitMiddleware(BaseMiddleware):
         # Записываем вызов и пропускаем
         timestamps.append(now)
         return await handler(event, data)
+
+
+class SuccessRateLimit:
+    """Лимит «N успехов за окно»: проверка — до дорогой работы, учёт — только
+    после успеха. Так ошибки ввода, неизвестные команды и сорвавшиеся попытки
+    лимит не тратят (раньше три опечатки подряд запирали юзера на 5 минут).
+
+    Память процесса, как и у RateLimitMiddleware: защита от спама в моменте."""
+
+    def __init__(self, window_sec: int, max_calls: int) -> None:
+        self.window_sec = window_sec
+        self.max_calls = max_calls
+        self._ok: dict[int, deque[float]] = defaultdict(deque)
+
+    def _trim(self, user_id: int, now: float) -> deque[float]:
+        ts = self._ok[user_id]
+        while ts and ts[0] <= now - self.window_sec:
+            ts.popleft()
+        return ts
+
+    def retry_after(self, user_id: int) -> int:
+        """0 — можно; иначе сколько секунд ждать."""
+        now = time.time()
+        ts = self._trim(user_id, now)
+        if len(ts) < self.max_calls:
+            return 0
+        return max(1, int(ts[0] + self.window_sec - now))
+
+    def record(self, user_id: int) -> None:
+        self._trim(user_id, time.time()).append(time.time())
+
+    def reset(self) -> None:
+        self._ok.clear()
+
+
+# Создание дайджеста (AI-подбор источников): 3 успешных за 5 минут.
+CREATE_DIGEST_LIMIT = SuccessRateLimit(window_sec=300, max_calls=3)

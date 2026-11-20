@@ -13,7 +13,7 @@ Live bot: [@TwidgestBot](https://t.me/TwidgestBot)
 
 ## What it does
 
-A user opens the bot, picks a topic (from 15 ready templates or describes their own), and gets a fully-automated Telegram news channel. The bot:
+A user opens the bot, describes a topic, connects their Telegram channel with one button, and gets a fully-automated news channel. The bot:
 
 1. Fetches posts from curated X (Twitter) accounts via [twitterapi.io](https://twitterapi.io) and VK communities via VK API
 2. Filters by engagement thresholds (likes, retweets) — configurable per channel via `/setthreshold`
@@ -59,11 +59,11 @@ flowchart TB
         subgraph Handlers["Handlers"]
             direction TB
             H1["start / help / me"]
-            H2["channels / templates"]
+            H2["channels / onboarding"]
             H3["createchannel"]
             H4["admin"]
             H5["billing (Stars)"]
-            H6["forward (auto-bind)"]
+            H6["forward (channel linking)"]
             H7["sources / targets"]
             H8["scout (AI source discovery)"]
         end
@@ -112,7 +112,7 @@ Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET
 
 **Safety-first content filter.** The LLM prompt explicitly rejects content that would be problematic under Russian law (military critique, drug references, specific medication dosages). Caught before posting, not after. The `unfiltered` preset bypasses quality filtering but retains all safety rules.
 
-**Template + AI hybrid onboarding.** 15 curated templates for popular niches (AI, crypto, longevity, F1, NBA, etc.) give instant-start UX. If the topic isn't in the catalog, `/createchannel ai <description>` asks the LLM to suggest 12 relevant X accounts with one-line explanations for each.
+**Button-driven onboarding.** `/start` → «Создать дайджест» → the user describes a topic, the LLM finds real X accounts and each is prevalidated on its recent tweets → «Подключить Telegram-канал» (a `?startchannel&admin=post_messages` deep link): the bot is made channel admin and links itself via the `my_chat_member` update. Setup runs only in DM; commands in groups get a single «настроить в личке» button.
 
 **Separate windows for single and digest.** Hybrid channels publish two types of content: individual fresh tweets (single posts, 24-hour freshness window) and periodic digests (14-hour window, "best of period"). Single posts mark tweets with `posted_at_single` instead of removing them — so digests can include both fresh tweets and already-published singles in a unified "overview". A daily cleanup job removes queue entries older than 7 days to keep disk usage stable.
 
@@ -129,17 +129,17 @@ Admins can override any channel's filter via `/admin setfilter CHANNEL_ID PRESET
     ├── main.py                    Entry point: dispatcher + scheduler
     ├── config.py                  Env-based config (incl. VK_ACCESS_TOKEN)
     ├── tiers.py                   Pricing tiers (source of truth)
-    ├── templates.py               15 built-in channel templates
+    ├── templates.py               15 channel templates (audit job only, not in the user flow)
     ├── prompts.py                 LLM prompts + filter mode definitions
     ├── engagement_defaults.py     Per-niche engagement defaults
     │
     ├── bot/handlers/
     │   ├── start.py               /start, /help, /me
-    │   ├── channels.py            /channels, /createchannel, /templates
+    │   ├── channels.py            /channels, /createchannel
     │   ├── sources.py             /sources, /addsource, /removesource,
     │   │                          /setfilter, /setthreshold, /filters
     │   ├── targets.py             Target channel management
-    │   ├── forward.py             Auto-bind channel on forwarded message
+    │   ├── forward.py             Channel linking: my_chat_member + forward fallback
     │   ├── admin.py               /admin grant|stats|user|broadcast|
     │   │                          setfilter|setthreshold|addsource|removesource
     │   └── billing.py             /upgrade, Stars payment flow

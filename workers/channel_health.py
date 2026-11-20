@@ -180,7 +180,7 @@ def _build_diagnostic_message(
         f"• Посмотреть текущие источники: <code>/sources {channel.id}</code>"
     )
     advice_lines.append(
-        f"• Сменить тему через готовый шаблон: <code>/templates</code>"
+        f"• Уточнить тему: <code>/setdescription {channel.id} про что дайджест</code>"
     )
     advice_str = "\n".join(advice_lines)
 

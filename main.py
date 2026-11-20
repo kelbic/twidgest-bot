@@ -17,7 +17,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
-from bot.handlers import admin, billing, channels, costs, forward, freetext, legal, scout, sources, start, targets
+from bot.handlers import (
+    admin, billing, channels, costs, forward, freetext, legal, onboarding,
+    scout, sources, start, targets,
+)
 from bot.middlewares.admin_check import AdminOnlyMiddleware
 from bot.middlewares.rate_limit import RateLimitMiddleware
 from config import Config
@@ -33,6 +36,47 @@ from workers.publisher import run_publish_cycle
 from workers.channel_health import run_channel_health_cycle
 from workers.viral_picker import run_viral_picker_cycle
 from workers.queue_cleanup import run_queue_cleanup
+
+
+def build_dispatcher(admin_user_id: int) -> Dispatcher:
+    """Все роутеры и middleware. Вынесено из main(), чтобы тесты гоняли
+    апдейты через тот же диспетчер, что и прод (роутер подключается к
+    родителю один раз — строить диспетчер в процессе можно лишь однажды)."""
+    dp = Dispatcher()
+
+    # ПЕРВЫМ: команды бота в группах не исполняются — кнопка «настроить в личке»
+    dp.include_router(onboarding.router)
+    dp.include_router(start.router)
+    dp.include_router(sources.router)
+    dp.include_router(scout.router)
+    dp.include_router(targets.router)
+    dp.include_router(billing.router)
+    # Подключение канала: my_chat_member (кнопка startchannel) + форвард
+    dp.include_router(forward.router)
+    dp.include_router(channels.router)
+
+    # Rate limiting на все user-команды (admin исключается через ADMIN_USER_ID)
+    dp.message.middleware(RateLimitMiddleware(admin_user_id=admin_user_id))
+    # Admin router — только для ADMIN_USER_ID
+    admin.router.message.middleware(AdminOnlyMiddleware(admin_user_id))
+    dp.include_router(costs.router)
+    dp.include_router(legal.router)
+    dp.include_router(admin.router)
+    # ПОСЛЕДНИМ: catch-all «текст как тема» ловит только то,
+    # что не поймал никто выше
+    dp.include_router(freetext.router)
+    return dp
+
+
+def allowed_updates(dp: Dispatcher) -> list[str]:
+    """Типы апдейтов для getUpdates. Telegram помнит последний переданный
+    список, поэтому задаём явно; my_chat_member (бота сделали админом канала
+    по кнопке «Подключить Telegram-канал») — обязательно."""
+    return sorted(set(dp.resolve_used_update_types()) | {"my_chat_member"})
+
+
+async def run_polling(dp: Dispatcher, bot: Bot) -> None:
+    await dp.start_polling(bot, allowed_updates=allowed_updates(dp))
 
 
 async def main() -> None:
@@ -61,26 +105,7 @@ async def main() -> None:
         token=cfg.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher()
-
-    dp.include_router(start.router)
-    dp.include_router(sources.router)
-    dp.include_router(scout.router)
-    dp.include_router(targets.router)
-    dp.include_router(billing.router)
-    dp.include_router(forward.router)
-    dp.include_router(channels.router)
-
-    # Rate limiting на все user-команды (admin исключается через ADMIN_USER_ID)
-    dp.message.middleware(RateLimitMiddleware(admin_user_id=cfg.admin_user_id))
-    # Admin router — только для ADMIN_USER_ID
-    admin.router.message.middleware(AdminOnlyMiddleware(cfg.admin_user_id))
-    dp.include_router(costs.router)
-    dp.include_router(legal.router)
-    dp.include_router(admin.router)
-    # ПОСЛЕДНИМ: catch-all «текст как тема» ловит только то,
-    # что не поймал никто выше
-    dp.include_router(freetext.router)
+    dp = build_dispatcher(cfg.admin_user_id)
 
     twitter_client = TwitterClient(cfg.twitter_api_key)
     cache = TwitterCache(twitter_client, ttl_seconds=1800)
@@ -150,12 +175,11 @@ async def main() -> None:
 
     me = await bot.get_me()
     await bot.set_my_commands([
-        BotCommand(command="channels", description="Мои каналы и их статус"),
-        BotCommand(command="templates", description="Готовые темы для канала"),
-        BotCommand(command="createchannel", description="Создать канал (шаблон или AI)"),
-        BotCommand(command="sources", description="Источники канала"),
+        BotCommand(command="channels", description="Мои дайджесты и каналы"),
+        BotCommand(command="createchannel", description="Создать дайджест по теме"),
+        BotCommand(command="sources", description="Источники дайджеста"),
         BotCommand(command="scout", description="AI-скаут: подобрать источники"),
-        BotCommand(command="status", description="Детальная статистика канала"),
+        BotCommand(command="status", description="Детальная статистика дайджеста"),
         BotCommand(command="setinterval", description="Как часто публиковать"),
         BotCommand(command="me", description="Тариф и лимиты"),
         BotCommand(command="upgrade", description="Тарифы и покупка"),
@@ -199,7 +223,7 @@ async def main() -> None:
     asyncio.create_task(_startup_cycle())
 
     try:
-        await dp.start_polling(bot)
+        await run_polling(dp, bot)
     finally:
         scheduler.shutdown()
         await bot.session.close()

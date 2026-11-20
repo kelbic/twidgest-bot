@@ -12,6 +12,11 @@ from aiogram.types import (
     Message,
 )
 
+from bot.handlers.onboarding import (
+    CREATE_BUTTON,
+    connect_channel_button,
+    create_digest_kb,
+)
 from db.repositories.users import get_or_create_user
 from db.session import session_maker
 
@@ -19,77 +24,80 @@ router = Router(name="start")
 
 
 WELCOME = """\
-👋 Я <b>TwidgestBot</b> — превращаю X/Twitter в живой новостной Telegram-канал на автопилоте: нахожу авторов по теме, проверяю их по реальным твитам, перевожу и публикую лучшее.
+👋 Я <b>TwidgestBot</b> — собираю дайджест новостей из X/Twitter по твоей теме и веду на автопилоте твой Telegram-канал: нахожу авторов, проверяю их по реальным твитам, перевожу и публикую лучшее.
 
-<b>Просто напиши тему канала одним сообщением</b> — например: <i>«новости электромобилей»</i> или <i>«биохакинг и longevity»</i>.
+<b>Как начать:</b> нажми «Создать дайджест» и напиши тему одним сообщением — например <i>«новости электромобилей»</i> или <i>«биохакинг и долголетие»</i>. Потом одной кнопкой подключишь свой канал.
 
 <i>Используя бота, вы принимаете <a href="https://kelbic.github.io/twidgest-bot/legal/terms.html">условия</a> и <a href="https://kelbic.github.io/twidgest-bot/legal/privacy.html">политику конфиденциальности</a>.</i>
 """
 
 WELCOME_KB = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="🚀 Создать канал по теме", callback_data="qs:ai")],
-    [InlineKeyboardButton(text="📋 Готовые шаблоны", callback_data="qs:templates")],
+    [InlineKeyboardButton(text=CREATE_BUTTON, callback_data="qs:ai")],
     [InlineKeyboardButton(text="❓ Как это работает", callback_data="qs:how")],
 ])
+
+ASK_TOPIC = (
+    "Напиши тему дайджеста одним сообщением — я найду и проверю авторов "
+    "в X и соберу дайджест.\n\n"
+    "Примеры: <i>«новости электромобилей»</i>, "
+    "<i>«крикет, премьер-лига Индии»</i>, "
+    "<i>«космос и астрономия»</i>"
+)
 
 HOW_IT_WORKS = """\
 <b>Как это работает</b>
 
-1️⃣ Ты пишешь тему — AI ищет реальных авторов в X, проверяет каждого по его последним твитам (доля текста, активность, тематичность) и создаёт канал-заготовку.
+1️⃣ Ты пишешь тему — AI ищет реальных авторов в X, проверяет каждого по его последним твитам (доля текста, активность, тематичность) и собирает <b>дайджест</b>: тему и список источников.
 
-2️⃣ Ты создаёшь Telegram-канал, добавляешь меня админом с правом «Публикация сообщений» и пересылаешь мне любое сообщение из него — привязка автоматическая.
+2️⃣ Ты подключаешь свой Telegram-<b>канал</b>: если канала ещё нет — создаёшь пустой, жмёшь кнопку «Подключить Telegram-канал» и выбираешь его. Я сам стану админом с правом публиковать посты.
 
-3️⃣ Дальше всё само: каждые 30 минут собираю свежие твиты, AI-редактор отбирает самое содержательное (а не просто залайканное), переводит и публикует. Дайджесты — по расписанию.
-
-Команды и FAQ: /help
+3️⃣ Дальше всё само: каждые 30 минут собираю свежие твиты, AI-редактор отбирает самое содержательное (а не просто залайканное), переводит и публикует в канал. Подборки — по расписанию.
 """
 
 HELP = """\
-📖 <b>Все команды TwidgestBot</b>
+📖 <b>Как пользоваться TwidgestBot</b>
 
-<b>🎯 Каналы (основное):</b>
-/channels — список твоих каналов
-/templates — готовые шаблоны проверенных тем
-/createchannel template &lt;id&gt; — из шаблона
-/createchannel ai &lt;тема&gt; — AI подберёт источники
-/deletechannel &lt;id&gt; — удалить канал
+<b>Дайджест</b> — тема и источники в X, которые я читаю. <b>Канал</b> — твой Telegram-канал, куда я публикую посты дайджеста.
 
-<b>📡 Источники:</b>
-/sources &lt;id&gt; — список источников канала
-/addsource &lt;id&gt; @user — добавить Twitter-источник
-/addsource &lt;id&gt; vk:domain — добавить VK-источник
-/removesource &lt;id&gt; @user — удалить источник
-/scout &lt;id&gt; — AI-скаут: подберёт новые источники и проверит их по реальным твитам
-/setthreshold &lt;id&gt; likes=N retweets=N — порог виральности
-/regenerate &lt;id&gt; — перегенерить все источники канала через AI
-/setinterval &lt;id&gt; — как часто публиковать (не чаще N раз в час, кнопками)
-/status &lt;id&gt; — детальная статистика канала
-/deletechannel &lt;id&gt; — удалить канал
-/bind &lt;chat_id&gt; &lt;channel_id&gt; — вручную привязать чат
+<b>🎯 Дайджесты (основное):</b>
+/channels — мои дайджесты и подключённые каналы
+/createchannel &lt;тема&gt; — создать дайджест (или просто напиши тему сообщением)
+/deletechannel &lt;№&gt; — удалить дайджест
+
+<b>📡 Источники</b> (№ — номер дайджеста из /channels):
+/sources &lt;№&gt; — список источников
+/addsource &lt;№&gt; @user — добавить автора из X
+/addsource &lt;№&gt; vk:domain — добавить сообщество VK
+/removesource &lt;№&gt; @user — убрать источник
+/scout &lt;№&gt; — AI-скаут: подберёт новые источники и проверит их по реальным твитам
+/setthreshold &lt;№&gt; likes=N retweets=N — порог виральности
+/regenerate &lt;№&gt; — заново подобрать все источники через AI
+/setinterval &lt;№&gt; — как часто публиковать (кнопками)
+/status &lt;№&gt; — детальная статистика
 
 <b>👤 Профиль и оплата:</b>
-/me — каналы и их статусы
-/upgrade — оплата каналов (999⭐ за 30 дней на канал,
-первый канал — 🎁 триал 7 дней)
+/me — дайджесты и их статусы
+/upgrade — оплата (999⭐ за 30 дней на дайджест, первый — 🎁 триал 7 дней)
 /payments — история платежей
-/setlegal — юр-фильтр RF-рисков по каналам
+/setlegal — юр-фильтр RF-рисков
 /setminterest — порог интересности постов (AI-оценка 1-10)
 /setsourceinterest — порог интереса для ОДНОГО источника (для смешанных)
 
 <b>ℹ️ Помощь:</b>
-/start — приветствие
+/start — начать сначала
 /help — эта справка
 
 <b>❓ Частые вопросы:</b>
 
-<b>Как привязать канал?</b>
-После создания бот-канала — создай Telegram-канал, добавь меня админом, перешли мне любое сообщение оттуда.
+<b>Как подключить канал?</b>
+После создания дайджеста нажми «Подключить Telegram-канал» и выбери свой канал (кнопка есть и в /channels). Если канала ещё нет — сначала создай пустой канал в Telegram.
+Не сработала кнопка? Добавь бота админом с правом публиковать посты, напиши в канале слово «тест» и перешли это сообщение сюда. Подпись Telegram „не имеет доступа к сообщениям“ — это норма, она не мешает публикации.
 
 <b>Почему нет постов?</b>
-Бот проверяет источники раз в 30 минут. После привязки жди до 30 минут первого поста. Digest-режим публикует раз в N часов (по умолчанию 12). Если канал молчит дольше — /scout &lt;id&gt; подберёт более живые источники под твою тему.
+Я проверяю источники раз в 30 минут — после подключения канала жди первый пост до получаса. Подборки выходят раз в несколько часов. Если канал молчит дольше — /scout &lt;№&gt; подберёт более живые источники под твою тему.
 
-<b>Можно ли несколько каналов?</b>
-Да, от Starter — до 2, от Pro — до 5. Каждый со своей темой и источниками.
+<b>Можно ли несколько дайджестов?</b>
+Да — каждый со своей темой, источниками и своим каналом.
 
 <b>Как отменить подписку?</b>
 Через Telegram Settings → Payments → Subscriptions. Подписка действует до конца оплаченного месяца.
@@ -98,15 +106,32 @@ HELP = """\
 """
 
 
+async def _welcome_kb(message: Message, user) -> InlineKeyboardMarkup:
+    """Есть дайджест без канала — следующий шаг онбординга: подключить канал."""
+    has_unlinked = any(
+        c.target_chat_id is None and c.archived_at is None
+        for c in (getattr(user, "channels", None) or [])
+    )
+    bot = getattr(message, "bot", None)
+    if not has_unlinked or bot is None:
+        return WELCOME_KB
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [await connect_channel_button(bot)],
+        *WELCOME_KB.inline_keyboard,
+    ])
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message, command: CommandObject | None = None) -> None:
+    """/start и /start setup (кнопка «настроить в личке» из группы) — вход
+    в онбординг. setup — служебный параметр, первым касанием не пишется."""
     if message.from_user is None:
         return
     # Воронка витрин: t.me/<bot>?start=src_c5 → users.start_source (первое касание)
     from core.attribution import parse_start_source
     source = parse_start_source(command.args if command else None)
     async with session_maker()() as session:
-        await get_or_create_user(
+        user = await get_or_create_user(
             session,
             tg_user_id=message.from_user.id,
             tg_username=message.from_user.username,
@@ -117,7 +142,8 @@ async def cmd_start(message: Message, command: CommandObject | None = None) -> N
         logging.getLogger(__name__).info(
             "start: user %d via %s", message.from_user.id, source)
     await message.answer(
-        WELCOME, reply_markup=WELCOME_KB, disable_web_page_preview=True
+        WELCOME, reply_markup=await _welcome_kb(message, user),
+        disable_web_page_preview=True,
     )
 
 
@@ -125,22 +151,15 @@ async def cmd_start(message: Message, command: CommandObject | None = None) -> N
 async def cb_quickstart_ai(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.message:
-        await callback.message.answer(
-            "Напиши тему канала одним сообщением — я найду и проверю "
-            "авторов в X и создам канал.\n\n"
-            "Примеры: <i>«новости электромобилей»</i>, "
-            "<i>«крикет, премьер-лига Индии»</i>, "
-            "<i>«космос и астрономия»</i>"
-        )
+        await callback.message.answer(ASK_TOPIC)
 
 
 @router.callback_query(F.data == "qs:templates")
 async def cb_quickstart_templates(callback: CallbackQuery) -> None:
+    """Кнопка из старых приветствий: готовых шаблонов больше нет — ведём к теме."""
     await callback.answer()
     if callback.message:
-        # cmd_templates использует только message.answer — безопасно
-        from bot.handlers.channels import cmd_templates
-        await cmd_templates(callback.message)
+        await callback.message.answer(ASK_TOPIC)
 
 
 @router.callback_query(F.data == "qs:how")
@@ -148,7 +167,8 @@ async def cb_quickstart_how(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.message:
         await callback.message.answer(
-            HOW_IT_WORKS, disable_web_page_preview=True
+            HOW_IT_WORKS, reply_markup=create_digest_kb(),
+            disable_web_page_preview=True,
         )
 
 
@@ -175,16 +195,16 @@ async def cmd_me(message: Message) -> None:
         channels = list(user.channels) if hasattr(user, "channels") else []
         st_emoji = {"admin": "🛡", "paid": "🟢", "trial": "🎁", "inactive": "🔴"}
         ch_lines = [
-            f"  {st_emoji[channel_status(c)]} <b>{html.escape((c.title or '')[:40])}</b> (id={c.id})"
+            f"  {st_emoji[channel_status(c)]} <b>{html.escape((c.title or '')[:40])}</b> (№{c.id})"
             for c in channels
         ] or ["  — пока нет, напиши тему одним сообщением"]
 
         text = (
             f"👤 <b>Ваш профиль</b>\n\n"
-            f"Каналы:\n" + "\n".join(ch_lines) + "\n\n"
+            f"Дайджесты:\n" + "\n".join(ch_lines) + "\n\n"
             f"💳 Модель простая: <b>{price_display()} за {SLOT_DAYS} дней</b> "
-            f"на канал, первый канал — триал 7 дней.\n"
-            f"Лимиты канала: {MAX_SOURCES_NOTE} источников, "
+            f"за дайджест, первый — триал 7 дней.\n"
+            f"Лимиты дайджеста: {MAX_SOURCES_NOTE} источников, "
             f"{DAILY_EVAL_BUDGET_NOTE} AI-оценок/день.\n\n"
             f"Статусы и оплата: /upgrade · Платежи: /payments"
         )
@@ -221,8 +241,8 @@ async def cmd_tg_help(message: Message) -> None:
         "со ссылками — настрою вручную в течение дня\n\n"
         "Автоматическая интеграция с TGStat API в работе — будет доступна "
         "следующим этапом для Pro-тарифа.\n\n"
-        "<i>Если ты тестируешь бот для себя — пока продолжай с Twitter-источниками "
-        "или используй /templates с готовой темой.</i>"
+        "<i>Если ты тестируешь бот для себя — пока продолжай с Twitter-источниками: "
+        "часто помогает сформулировать тему шире или по-английски.</i>"
     )
     await message.answer(text, disable_web_page_preview=True)
 

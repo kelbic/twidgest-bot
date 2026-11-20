@@ -1,4 +1,4 @@
-"""Текст как тема: новичок пишет сообщение — предлагаем создать канал.
+"""Текст как тема: новичок пишет сообщение — предлагаем создать дайджест.
 
 Роутер подключается ПОСЛЕДНИМ: сюда падает только то, что не поймал
 ни один другой хендлер. Гейты: личка, текст не-команда, не форвард.
@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 import time
 
@@ -21,6 +22,7 @@ from aiogram.types import (
 )
 from sqlalchemy import func as sa_func, select
 
+from bot.handlers.onboarding import create_digest_kb
 from db.models import Channel
 from db.session import session_maker
 
@@ -56,10 +58,9 @@ async def freetext_as_topic(message: Message) -> None:
     topic = message.text.strip()[:MAX_TOPIC_LEN]
     if len(topic) < 10:
         await message.answer(
-            "Похоже на тему канала, но коротковато — опиши чуть подробнее "
+            "Похоже на тему дайджеста, но коротковато — опиши чуть подробнее "
             "(минимум 10 символов).\n"
-            "Например: <i>«новости электромобилей и зарядной инфраструктуры»</i>\n\n"
-            "Все команды: /help"
+            "Например: <i>«новости электромобилей и зарядной инфраструктуры»</i>"
         )
         return
 
@@ -70,9 +71,9 @@ async def freetext_as_topic(message: Message) -> None:
     ]])
     extra = " ещё один" if n_channels else ""
     await message.answer(
-        f"Создать{extra} канал по теме <b>«{topic}»</b>?\n\n"
+        f"Создать{extra} дайджест по теме <b>«{html.escape(topic)}»</b>?\n\n"
         f"Я найду авторов в X, проверю каждого по его реальным твитам "
-        f"и соберу канал — займёт около минуты.",
+        f"и соберу дайджест — займёт около минуты.",
         reply_markup=kb,
     )
 
@@ -108,3 +109,15 @@ async def cb_freetext_no(callback: CallbackQuery) -> None:
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
+
+
+@router.message(F.chat.type == "private", F.text.startswith("/"))
+async def unknown_command(message: Message) -> None:
+    """Команда, которую не поймал ни один хендлер (опечатка, старая кнопка
+    вроде убранных шаблонов). Отвечаем подсказкой, а не тишиной; лимиты
+    не тратятся — у неизвестной команды их нет."""
+    await message.answer(
+        "🤔 Не знаю такой команды. Чтобы собрать дайджест, нажми кнопку ниже "
+        "и напиши тему. Все команды — /help",
+        reply_markup=create_digest_kb(),
+    )

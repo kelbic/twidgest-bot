@@ -68,31 +68,31 @@ async def cmd_sources(message: Message, command: CommandObject) -> None:
         return
     if not command.args:
         await message.answer(
-            "Использование: <code>/sources &lt;channel_id&gt;</code>\n\n"
-            "ID каналов — в /channels"
+            "Использование: <code>/sources &lt;№ дайджеста&gt;</code>\n\n"
+            "Номера дайджестов — в /channels"
         )
         return
 
     try:
         channel_id = int(command.args.strip().split()[0])
     except (ValueError, IndexError):
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     if not channel.channel_sources:
         await message.answer(
-            f"<b>{html.escape(channel.title or '')}</b> (id={channel_id})\n\n"
+            f"<b>{html.escape(channel.title or '')}</b> (№{channel_id})\n\n"
             f"Источников нет.\n\n"
             f"Добавить: <code>/addsource {channel_id} @user</code> или <code>vk:domain</code>"
         )
         return
 
-    lines = [f"📡 <b>Источники канала «{html.escape(channel.title or '')}»</b> (id={channel_id})\n"]
+    lines = [f"📡 <b>Источники дайджеста «{html.escape(channel.title or '')}»</b> (№{channel_id})\n"]
     for i, src in enumerate(channel.channel_sources, 1):
         active = "✅" if src.is_active else "⏸"
         prefix = "" if src.twitter_username.startswith("vk:") else "@"
@@ -117,9 +117,9 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
     args = _parse_args(command.args, 2)
     if not args:
         await message.answer(
-            "Использование:\n"
-            "  Twitter: <code>/addsource &lt;channel_id&gt; @username</code>\n"
-            "  VK:      <code>/addsource &lt;channel_id&gt; vk:domain</code>\n\n"
+            "Использование (№ — номер дайджеста из /channels):\n"
+            "  Twitter: <code>/addsource &lt;№&gt; @username</code>\n"
+            "  VK:      <code>/addsource &lt;№&gt; vk:domain</code>\n\n"
             "Примеры:\n"
             "  <code>/addsource 5 @hubermanlab</code>\n"
             "  <code>/addsource 5 vk:lentaru</code>"
@@ -129,7 +129,7 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(args[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     raw_source = args[1].strip()
@@ -137,7 +137,7 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     # Кап на канал: честный пользователь не упрётся (AI-онбординг даёт 6-9
@@ -197,7 +197,7 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
 
         await status_msg.edit_text(
             f"✅ VK источник <b>{community.name}</b> (<code>{stored_id}</code>) "
-            f"добавлен в канал <b>{html.escape(channel.title or '')}</b>.\n\n"
+            f"добавлен в дайджест <b>{html.escape(channel.title or '')}</b>.\n\n"
             f"👥 Подписчиков: {community.members_count:,}\n"
             f"Бот начнёт собирать посты в следующем цикле (до 30 мин)."
         )
@@ -237,7 +237,7 @@ async def cmd_addsource(message: Message, command: CommandObject) -> None:
             await session.commit()
 
         await status_msg.edit_text(
-            f"✅ Источник <b>@{username}</b> добавлен в канал <b>{html.escape(channel.title or '')}</b>.\n\n"
+            f"✅ Источник <b>@{username}</b> добавлен в дайджест <b>{html.escape(channel.title or '')}</b>.\n\n"
             f"Бот начнёт собирать твиты с него в следующем цикле (до 30 мин)."
         )
 
@@ -250,21 +250,21 @@ async def cmd_removesource(message: Message, command: CommandObject) -> None:
     args = _parse_args(command.args, 2)
     if not args:
         await message.answer(
-            "Использование: <code>/removesource &lt;channel_id&gt; @username</code>"
+            "Использование: <code>/removesource &lt;№ дайджеста&gt; @username</code>"
         )
         return
 
     try:
         channel_id = int(args[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     username = args[1].lstrip("@").strip()
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     # Найдём источник
@@ -276,7 +276,7 @@ async def cmd_removesource(message: Message, command: CommandObject) -> None:
 
     if target_source is None:
         await message.answer(
-            f"⚠️ Источник @{username} не найден в этом канале.\n\n"
+            f"⚠️ Источник @{username} не найден в этом дайджесте.\n\n"
             f"Список: <code>/sources {channel_id}</code>"
         )
         return
@@ -302,7 +302,7 @@ async def cmd_removesource(message: Message, command: CommandObject) -> None:
     cleaned = deleted_q.rowcount or 0
     cleanup_note = f"\n🧹 Также удалено {cleaned} ожидающих твитов из очереди." if cleaned > 0 else ""
     await message.answer(
-        f"🗑 Источник <b>@{username}</b> удалён из канала <b>{html.escape(channel.title or '')}</b>.\n\n"
+        f"🗑 Источник <b>@{username}</b> удалён из дайджеста <b>{html.escape(channel.title or '')}</b>.\n\n"
         f"Осталось источников: {remaining}{cleanup_note}"
     )
 
@@ -324,12 +324,12 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(command.args.strip().split()[0])
     except (ValueError, IndexError):
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     # Сохраним старые источники чтобы исключить их при регенерации
@@ -338,8 +338,8 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
     description = channel.description or channel.title
     if not description or len(description) < 10:
         await message.answer(
-            f"❌ Невозможно перегенерировать — у канала нет описания темы. "
-            f"Создай новый через /createchannel."
+            f"❌ Невозможно перегенерировать — у дайджеста нет описания темы. "
+            f"Создай новый: напиши тему одним сообщением."
         )
         return
 
@@ -410,8 +410,7 @@ async def cmd_regenerate(message: Message, command: CommandObject) -> None:
             f"⚠️ Найдено только {len(filtered)} активных аккаунтов с достаточной "
             f"аудиторией. Тема может быть слишком узкой для Twitter — попробуй:\n\n"
             f"1. Переформулировать на английском\n"
-            f"2. Сделать тему шире\n"
-            f"3. Использовать готовый шаблон: /templates\n\n"
+            f"2. Сделать тему шире\n\n"
             f"Источники не изменены."
         )
         return
@@ -544,7 +543,7 @@ async def cmd_setimages(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(args[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     state = args[1].lower()
@@ -556,7 +555,7 @@ async def cmd_setimages(message: Message, command: CommandObject) -> None:
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     from sqlalchemy import update as sa_update
@@ -673,12 +672,12 @@ async def cmd_setinterval(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(args[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     text, kb = _interval_card(channel)
@@ -803,12 +802,12 @@ async def cmd_status(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(command.args.strip().split()[0])
     except (ValueError, IndexError):
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     from datetime import datetime, timedelta
@@ -1293,7 +1292,7 @@ async def cmd_setthreshold(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(parts[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     # Парсим likes=N retweets=N
@@ -1319,7 +1318,7 @@ async def cmd_setthreshold(message: Message, command: CommandObject) -> None:
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     from sqlalchemy import update as sa_update
@@ -1374,7 +1373,7 @@ async def cmd_setfilter(message: Message, command: CommandObject) -> None:
     try:
         channel_id = int(args[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     preset_code = args[1].lower().strip()
@@ -1389,7 +1388,7 @@ async def cmd_setfilter(message: Message, command: CommandObject) -> None:
 
     channel = await _get_user_channel(message.from_user.id, channel_id)
     if channel is None:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
         return
 
     from sqlalchemy import update as sa_update

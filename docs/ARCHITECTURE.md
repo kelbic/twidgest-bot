@@ -16,19 +16,25 @@ twidgest-bot/
 │                                 #   - build_single_prompt(niche, mode)
 │                                 #   - build_digest_prompt(niche)
 ├── tiers.py                      # Pricing tiers (Free/Starter/Pro/Agency)
-├── templates.py                  # 15 built-in channel templates
+├── templates.py                  # 15 channel templates — only for tools/audit_templates.py
+│                                 #   (removed from the user flow in onboarding v2)
 ├── engagement_defaults.py        # Per-niche engagement thresholds
 │
 ├── bot/
 │   ├── handlers/
 │   │   ├── start.py              # /start, /help, /legal, /tg_help
-│   │   ├── channels.py           # /channels, /createchannel, /templates
+│   │   ├── onboarding.py         # Shared onboarding UI (connect-channel button,
+│   │   │                         #   startchannel deep link) + group → DM redirect
+│   │   ├── channels.py           # /channels, /createchannel (AI by topic),
+│   │   │                         #   success-only creation rate limit
 │   │   ├── sources.py            # /sources, /addsource, /removesource,
 │   │   │                         #   /regenerate, /setimages, /setfilter,
 │   │   │                         #   /filters, /status
 │   │   ├── scout.py              # /scout: AI source discovery — HIL card,
 │   │   │                         #   prevalidation on author's real tweets
-│   │   ├── forward.py            # Auto-bind channel on forwarded message
+│   │   ├── forward.py            # Channel linking: my_chat_member (startchannel
+│   │   │                         #   button), choice callback, forward fallback;
+│   │   │                         #   pending channel = targets row mode="pending"
 │   │   ├── admin.py              # /admin (grant/revoke/user/stats/
 │   │   │                         #   broadcast/channels/notify/setfilter)
 │   │   ├── billing.py            # /upgrade, Stars payment flow

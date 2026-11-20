@@ -163,7 +163,7 @@ async def _run_scout_flow(status_msg: Message, uid: int, channel_id: int) -> Non
         channel = await _get_owned_channel(session, uid, channel_id)
         if channel is None:
             await status_msg.edit_text(
-                f"⚠️ Канал {channel_id} не найден или не твой."
+                f"⚠️ Дайджест №{channel_id} не найден или не твой."
             )
             return
         if not channel_active(channel):
@@ -286,16 +286,16 @@ async def cmd_scout(message: Message, command: CommandObject) -> None:
     args = (command.args or "").split()
     if not args:
         await message.answer(
-            "Скаут подбирает новые X-источники под тему канала и проверяет "
+            "Скаут подбирает новые X-источники под тему дайджеста и проверяет "
             "их по реальным твитам.\n\n"
-            "Использование: <code>/scout &lt;channel_id&gt;</code>\n"
-            "ID каналов: <code>/channels</code>"
+            "Использование: <code>/scout &lt;№ дайджеста&gt;</code>\n"
+            "Номера дайджестов: /channels"
         )
         return
     try:
         channel_id = int(args[0])
     except ValueError:
-        await message.answer("❌ ID канала должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом (см. /channels).")
         return
 
     status_msg = await message.answer("🔍 Запускаю скаута...")

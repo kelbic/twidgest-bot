@@ -12,6 +12,7 @@ id. Channel.id и Target.id — независимые автоинкремен�
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from dataclasses import dataclass
 
@@ -200,12 +201,11 @@ async def _deactivate_channel(
         await bot.send_message(
             chat_id=channel.user_id,
             text=(
-                f"⚠️ Канал <b>«{channel.title}»</b> остановлен: бот потерял "
-                f"доступ к привязанному Telegram-каналу (удалён из админов "
-                f"или канал не существует).\n\n"
-                f"Верни бота админом с правом Post Messages и перепривяжи "
-                f"канал — форвардни в бота любое сообщение из него. "
-                f"Список каналов: /channels"
+                f"⚠️ Дайджест <b>«{html.escape(channel.title or '')}»</b> на паузе: "
+                f"я потерял доступ к подключённому Telegram-каналу (меня убрали "
+                f"из админов или канал удалён).\n\n"
+                f"Верни меня админом канала с правом публиковать посты — "
+                f"и дайджест продолжит работу сам. Список дайджестов: /channels"
             ),
             disable_web_page_preview=True,
         )

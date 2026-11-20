@@ -63,7 +63,14 @@ def apply_footer(text: str, footer: str, *, is_digest: bool = False) -> str:
     return f"{text.rstrip()}\n\n{footer}"
 
 
+# Служебные start-параметры — навигация внутри бота, а не канал привлечения:
+# «setup» ставит кнопка «настроить в личке» из группы. Первым касанием не пишем.
+SERVICE_START_PARAMS = frozenset({"setup"})
+
+
 def parse_start_source(arg: str | None) -> str | None:
     """start-параметр deep-link'а, пригодный для учёта (src_c5, src_vc, …); мусор → None."""
     a = (arg or "").strip()
+    if a.lower() in SERVICE_START_PARAMS:
+        return None
     return a if _START_PARAM_RE.match(a) else None

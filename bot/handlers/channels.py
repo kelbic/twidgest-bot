@@ -1,13 +1,26 @@
-"""Команды для Channel: /channels, /createchannel, /templates."""
+"""Дайджесты юзера: /channels (список), /createchannel (создание), /deletechannel.
+
+В текстах для юзера сущность бота — «дайджест», «канал» — только его настоящий
+Telegram-канал. Готовые шаблоны из пользовательского флоу убраны (templates.py
+остаётся для аудита tools/audit_templates.py); создание — AI-подбор по теме.
+"""
 from __future__ import annotations
 
 import html
 import logging
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
+from bot.handlers.onboarding import (
+    CONNECT_FALLBACK,
+    CONNECT_STEP,
+    connect_channel_button,
+    connect_channel_kb,
+    create_digest_kb,
+)
+from bot.middlewares.rate_limit import CREATE_DIGEST_LIMIT
 from config import Config
 from core.llm_client import OpenRouterClient
 from core.plan import MAX_CHANNELS_PER_USER, PRICE_STARS, channel_status
@@ -21,7 +34,6 @@ from db.repositories.channels import (
 )
 from db.repositories.users import get_or_create_user
 from db.session import session_maker
-from templates import TEMPLATES, get_template, list_templates
 
 # Shared clients for AI-assisted channel creation
 logger = logging.getLogger(__name__)
@@ -37,148 +49,33 @@ _scout_cache = TwitterCache(_twitter, ttl_seconds=1800)
 
 router = Router(name="channels")
 
+# Юзеры, у которых прямо сейчас идёт создание: вторая попытка, пока первая
+# не закончилась, обходила бы лимит «по успеху» — отбиваем её сразу.
+_creating: set[int] = set()
 
-CREATE_HELP = """\
-🎯 <b>Создание канала</b>
 
-<b>Способ 1 — описание темы:</b>
-Просто напиши тему после команды:
-<code>/createchannel крикет, премьер-лига Индии</code>
-<code>/createchannel новости AI и LLM</code>
+CREATE_HELP = """🎯 <b>Создание дайджеста</b>
 
-Бот найдёт релевантные аккаунты в X, проверит их активность и создаст канал.
+Напиши тему одним сообщением — например <i>«новости электромобилей»</i> \
+или <i>«крикет, премьер-лига Индии»</i>. Я найду авторов в X, проверю каждого \
+по реальным твитам и соберу дайджест, а потом помогу подключить твой Telegram-канал.
 
-<b>Способ 2 — готовый шаблон:</b>
-<code>/createchannel template &lt;id&gt;</code>
-Пример: <code>/createchannel template ai-news</code>
-
-Список шаблонов: /templates
+Можно и командой: <code>/createchannel новости AI и LLM</code>
 """
 
 
-@router.message(Command("templates"))
-async def cmd_templates(message: Message) -> None:
-    """Список шаблонов с готовыми командами для тапа."""
-    lines = ["📚 <b>Доступные шаблоны каналов:</b>\n"]
-    for tpl in list_templates():
-        # Каждая строка содержит готовую команду — Telegram её подсветит
-        # как кликабельную, и при тапе она автоматически отправится
-        lines.append(
-            f"{tpl.emoji} <b>{tpl.name}</b> — {tpl.description}\n"
-            f"   📡 Источников: {len(tpl.default_sources)}\n"
-            f"   👉 /createchannel_{tpl.id.replace('-', '_')}"
-        )
-    lines.append(
-        "\n<i>Тапни команду рядом с нужным шаблоном — канал создастся автоматически.</i>"
-    )
-    await message.answer("\n\n".join(lines))
+# Режим публикации — по-русски (в БД: hybrid | digest | single)
+_MODE_RU = {
+    "hybrid": "подборки + самое обсуждаемое",
+    "digest": "подборки",
+    "single": "посты по одному",
+}
 
 
-# Обработчик команд /createchannel_<template_id>
-@router.message(lambda m: m.text and m.text.startswith("/createchannel_"))
-async def cmd_createchannel_shortcut(message: Message) -> None:
-    """Хендлер для команд вида /createchannel_ai_news, /createchannel_longevity и т.д."""
-    if message.from_user is None or message.text is None:
-        return
-
-    # /createchannel_ai_news → ai_news → ai-news
-    raw = message.text.split()[0]  # игнорируем возможные аргументы
-    template_slug = raw.replace("/createchannel_", "", 1)
-    # В шаблонах id с дефисом, в команде с подчёркиванием — конвертируем
-    template_id = template_slug.replace("_", "-")
-
-    # Проверяем лимит каналов
-    async with session_maker()() as session:
-        user = await get_or_create_user(
-            session, message.from_user.id, message.from_user.username
-        )
-        existing = await get_user_channels(session, user.tg_user_id)
-        if len(existing) >= MAX_CHANNELS_PER_USER and user.tg_user_id != _cfg.admin_user_id:
-            await message.answer(
-                f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт. "
-                f"Если нужно больше — напиши @kelbic."
-            )
-            return
-
-    await _create_from_template(message, template_id)
-
-
-# Удалили callback handler'ы — больше не нужны
-
-
-async def callback_create_template(call) -> None:
-    """Юзер нажал на кнопку темплейта в /templates — создаём канал."""
-    if call.data is None or call.from_user is None or call.message is None:
-        return
-    template_id = call.data.split(":", 1)[1]
-
-    await call.answer("Создаю канал...")
-
-    user_id = call.from_user.id
-    username = call.from_user.username
-    chat_id_to_reply = call.message.chat.id
-
-    async with session_maker()() as session:
-        user = await get_or_create_user(session, user_id, username)
-        existing = await get_user_channels(session, user.tg_user_id)
-        if len(existing) >= MAX_CHANNELS_PER_USER and user.tg_user_id != _cfg.admin_user_id:
-            await call.message.bot.send_message(
-                chat_id=chat_id_to_reply,
-                text=(
-                    f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт. "
-                    f"Если нужно больше — напиши @kelbic."
-                ),
-            )
-            return
-
-    # Найдём темплейт
-    tpl = get_template(template_id)
-    if tpl is None and template_id.isdigit():
-        idx = int(template_id) - 1
-        templates_list = list_templates()
-        if 0 <= idx < len(templates_list):
-            tpl = templates_list[idx]
-
-    if tpl is None:
-        await call.message.bot.send_message(
-            chat_id=chat_id_to_reply,
-            text=f"❌ Темплейт <code>{template_id}</code> не найден.",
-        )
-        return
-
-    # Создаём канал
-    async with session_maker()() as session:
-        channel = await create_channel(
-            session,
-            user_id=user_id,
-            title=tpl.name,
-            niche=tpl.niche,
-            template_id=tpl.id,
-            description=tpl.description,
-            mode="hybrid",  # для шаблонов тоже hybrid
-            sources=tpl.default_sources,
-        )
-
-    sources_preview = ", ".join(f"@{s}" for s in tpl.default_sources[:5])
-    if len(tpl.default_sources) > 5:
-        sources_preview += f" и ещё {len(tpl.default_sources) - 5}"
-
-    await call.message.bot.send_message(
-        chat_id=chat_id_to_reply,
-        text=(
-            f"✅ <b>Канал создан!</b>\n\n"
-            f"{tpl.emoji} <b>{tpl.name}</b> (id={channel.id})\n"
-            f"{_slot_status_line(channel)}"
-            f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
-            f"⚙️ Режим: hybrid (4 дайджеста + до 5 виральных постов в день)\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
-            f"1️⃣ Создай Telegram-канал\n"
-            f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
-            f"3️⃣ Перешли (forward) любой пост из канала\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📋 Список твоих каналов: /channels"
-        ),
+def _max_digests_text() -> str:
+    return (
+        f"❌ Максимум {MAX_CHANNELS_PER_USER} дайджестов на аккаунт. "
+        f"Если нужно больше — напиши @kelbic."
     )
 
 
@@ -186,15 +83,35 @@ async def callback_create_template(call) -> None:
 async def cmd_channels(message: Message) -> None:
     if message.from_user is None:
         return
+    await send_digest_list(message, message.from_user.id, message.from_user.username)
+
+
+@router.callback_query(F.data == "ob:list")
+async def cb_digest_list(callback: CallbackQuery) -> None:
+    """Кнопка «Мои дайджесты» (после подключения канала)."""
+    await callback.answer()
+    if callback.from_user is None or callback.message is None:
+        return
+    await send_digest_list(
+        callback.message, callback.from_user.id, callback.from_user.username
+    )
+
+
+async def send_digest_list(
+    message: Message, user_id: int, username: str | None = None
+) -> None:
+    """Список дайджестов юзера. message — куда отвечать (команда или
+    сообщение под кнопкой), user_id — чей список (НЕ message.from_user:
+    у сообщения под кнопкой автор — бот)."""
     async with session_maker()() as session:
-        user = await get_or_create_user(
-            session, message.from_user.id, message.from_user.username
-        )
+        user = await get_or_create_user(session, user_id, username)
         channels = await get_user_channels(session, user.tg_user_id)
 
     if not channels:
         await message.answer(
-            "У тебя пока нет каналов.\n\nСоздай первый: /createchannel"
+            "У тебя пока нет дайджестов. Нажми кнопку и напиши тему — "
+            "соберу первый.",
+            reply_markup=create_digest_kb(),
         )
         return
 
@@ -210,13 +127,13 @@ async def cmd_channels(message: Message) -> None:
         )
         last_posts = {row[0]: row[1] for row in last_posts_q.all()}
 
-    lines = ["📢 <b>Твои каналы:</b>\n"]
+    lines = ["📰 <b>Твои дайджесты:</b>\n"]
     now = datetime.utcnow()
     for ch in channels:
         target_info = (
-            f"📍 {ch.target_chat_title or ch.target_chat_id}"
+            f"📢 Канал: {html.escape(ch.target_chat_title or str(ch.target_chat_id))}"
             if ch.target_chat_id
-            else "<i>⚠️ канал не настроен — перешли (forward) любой пост из канала</i>"
+            else "<i>⚠️ Telegram-канал не подключён — кнопка ниже</i>"
         )
         active = "✅" if ch.is_active else "⏸"
 
@@ -283,29 +200,33 @@ async def cmd_channels(message: Message) -> None:
                 f"твиты, которые AI-редактор оценил ≥{ch.min_interest} по теме канала"
             )
         lines.append(
-            f"{active} <b>{html.escape(ch.title or '')}</b> (id={ch.id})\n"
-            f"  Тема: {html.escape(ch.niche or '')} | Режим: {html.escape(ch.mode or '')} | {images_status} | Фильтр: {filter_str}\n"
+            f"{active} <b>{html.escape(ch.title or '')}</b> (№{ch.id})\n"
+            f"  Тема: {html.escape(ch.niche or '')} | Режим: {html.escape(_MODE_RU.get(ch.mode, ch.mode or ''))} | {images_status} | Фильтр: {filter_str}\n"
             f"  Источников: {len(ch.channel_sources)} | 📊 {threshold_str}{interest_str}\n"
             f"  {target_info}\n"
             f"  {last_info}"
         )
     lines.append(
-        "\n<i>💡 AI-редактор отсекает оффтоп по теме канала (берёт её из названия). "
+        "\n<i>💡 AI-редактор отсекает оффтоп по теме дайджеста (берёт её из названия). "
         "Если фильтр пропускает не то — уточни тему: "
-        "<code>/setdescription &lt;id&gt; про что канал</code>.</i>"
+        "<code>/setdescription &lt;№&gt; про что дайджест</code>.</i>"
     )
     lines.append(
-        "\n<b>Управление:</b>\n"
-        "  /sources &lt;id&gt; — источники канала\n  /status &lt;id&gt; — детальная статистика\n"
-        "  /addsource &lt;id&gt; @user — добавить\n"
-        "  /removesource &lt;id&gt; @user — удалить\n"
-        "  /scout &lt;id&gt; — AI-скаут: подобрать новые источники\n"
-        "  /regenerate &lt;id&gt; — пересоздать источники\n  /setimages &lt;id&gt; on|off — картинки в канале\n"
-        "  /setthreshold &lt;id&gt; likes=N retweets=N — порог виральности\n"
-        "  /setminterest &lt;id&gt; 0-10 — порог интереса (AI-оценка темы)\n"
-        "  /deletechannel &lt;id&gt; — удалить канал"
+        "\n<b>Управление</b> (№ — номер дайджеста из списка):\n"
+        "  /sources &lt;№&gt; — источники\n  /status &lt;№&gt; — детальная статистика\n"
+        "  /addsource &lt;№&gt; @user — добавить источник\n"
+        "  /removesource &lt;№&gt; @user — убрать источник\n"
+        "  /scout &lt;№&gt; — AI-скаут: подобрать новые источники\n"
+        "  /regenerate &lt;№&gt; — пересоздать источники\n  /setimages &lt;№&gt; on|off — картинки в постах\n"
+        "  /setthreshold &lt;№&gt; likes=N retweets=N — порог виральности\n"
+        "  /setminterest &lt;№&gt; 0-10 — порог интереса (AI-оценка темы)\n"
+        "  /deletechannel &lt;№&gt; — удалить дайджест"
     )
-    await message.answer("\n\n".join(lines))
+    kb = None
+    if any(ch.target_chat_id is None for ch in channels):
+        lines.append(f"<i>{CONNECT_STEP}</i>")
+        kb = await connect_channel_kb(message.bot)
+    await message.answer("\n\n".join(lines), reply_markup=kb)
 
 
 @router.message(Command("createchannel"))
@@ -313,108 +234,34 @@ async def cmd_createchannel(message: Message, command: CommandObject) -> None:
     if message.from_user is None:
         return
     if not command.args:
-        await message.answer(CREATE_HELP)
+        await message.answer(CREATE_HELP, reply_markup=create_digest_kb())
         return
 
     parts = command.args.split(maxsplit=1)
 
-    # Логика выбора метода:
-    # - /createchannel template <id>  — явный шаблон
     # - /createchannel ai <тема>      — явный AI (обратная совместимость)
-    # - /createchannel <любой текст>  — AI по умолчанию (UX-friendly)
+    # - /createchannel <любой текст>  — AI по умолчанию
+    # - /createchannel template <id>  — шаблонов больше нет → подсказка (лимит не тратит)
     first_word = parts[0].lower() if parts else ""
     if first_word == "template":
+        await message.answer(CREATE_HELP, reply_markup=create_digest_kb())
+        return
+    if first_word == "ai":
         if len(parts) < 2:
-            await message.answer(CREATE_HELP)
+            await message.answer(CREATE_HELP, reply_markup=create_digest_kb())
             return
-        method = "template"
-        rest = parts[1].strip()
-    elif first_word == "ai":
-        if len(parts) < 2:
-            await message.answer(
-                "Опиши тему канала. Пример:\n"
-                "<code>/createchannel крикет, премьер-лига Индии</code>"
-            )
-            return
-        method = "ai"
         rest = parts[1].strip()
     else:
         # Любой текст после /createchannel = AI с этим описанием
-        method = "ai"
         rest = command.args.strip()
 
     async with session_maker()() as session:
-        user = await get_or_create_user(
+        # Регистрация юзера, если /createchannel пришёл раньше /start
+        await get_or_create_user(
             session, message.from_user.id, message.from_user.username
         )
-        existing_channels = await get_user_channels(session, user.tg_user_id)
-        if len(existing_channels) >= MAX_CHANNELS_PER_USER and user.tg_user_id != _cfg.admin_user_id:
-            await message.answer(
-                f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт. "
-                f"Если нужно больше — напиши @kelbic."
-            )
-            return
 
-    if method == "template":
-        await _create_from_template(message, rest)
-    elif method == "ai":
-        await _create_with_ai(message, rest)
-    else:
-        await message.answer(CREATE_HELP)
-
-
-async def _create_from_template(message: Message, template_id: str) -> None:
-    if message.from_user is None:
-        return
-    template_id = template_id.strip().lower()
-    tpl = get_template(template_id)
-
-    # Если по id не найдено — может это число (позиция в списке)
-    if tpl is None and template_id.isdigit():
-        idx = int(template_id) - 1  # 1-indexed для юзера
-        templates = list_templates()
-        if 0 <= idx < len(templates):
-            tpl = templates[idx]
-
-    if tpl is None:
-        valid = ", ".join(TEMPLATES.keys())
-        await message.answer(
-            f"❌ Темплейт <code>{template_id}</code> не найден.\n\n"
-            f"Доступные: {valid}\n\n"
-            f"Проще всего — нажать кнопку в /templates"
-        )
-        return
-
-    async with session_maker()() as session:
-        channel = await create_channel(
-            session,
-            user_id=message.from_user.id,
-            title=tpl.name,
-            niche=tpl.niche,
-            template_id=tpl.id,
-            description=tpl.description,
-            mode="hybrid",
-            sources=tpl.default_sources,
-        )
-
-    sources_preview = ", ".join(f"@{s}" for s in tpl.default_sources[:5])
-    if len(tpl.default_sources) > 5:
-        sources_preview += f" и ещё {len(tpl.default_sources) - 5}"
-
-    await message.answer(
-        f"✅ <b>Канал создан!</b>\n\n"
-        f"{tpl.emoji} <b>{tpl.name}</b> (id={channel.id})\n"
-        f"{_slot_status_line(channel)}"
-        f"📡 Источники ({len(tpl.default_sources)}): {sources_preview}\n"
-        f"⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
-        f"1️⃣ Создай Telegram-канал\n"
-        f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
-        f"3️⃣ Перешли (forward) любой пост из канала\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📋 Список твоих каналов: /channels"
-    )
+    await _create_with_ai(message, rest)
 
 
 def _slot_status_line(channel) -> str:
@@ -424,7 +271,7 @@ def _slot_status_line(channel) -> str:
         return (f"🎁 <b>Триал {channel.trial_until:%d.%m} включён</b> — "
                 f"7 дней бесплатно, дальше {PRICE_STARS}⭐/30 дней\n")
     if st == "inactive":
-        return (f"💳 Канал создан <b>неактивным</b> — активируй за "
+        return (f"💳 Дайджест создан <b>неактивным</b> — активируй за "
                 f"{PRICE_STARS}⭐ командой /upgrade\n")
     return ""  # admin/paid — без строки
 
@@ -432,20 +279,25 @@ def _slot_status_line(channel) -> str:
 @router.message(Command("deletechannel"))
 async def cmd_deletechannel(message: Message, command: CommandObject) -> None:
     if message.from_user is None or not command.args:
-        await message.answer("Использование: <code>/deletechannel &lt;id&gt;</code>")
+        await message.answer(
+            "Использование: <code>/deletechannel &lt;№ дайджеста&gt;</code>\n"
+            "Номера — в /channels"
+        )
         return
     try:
         channel_id = int(command.args.strip())
     except ValueError:
-        await message.answer("❌ id должен быть числом.")
+        await message.answer("❌ Номер дайджеста должен быть числом.")
         return
 
     async with session_maker()() as session:
         ok = await delete_channel(session, channel_id, message.from_user.id)
     if ok:
-        await message.answer(f"🗑 Канал {channel_id} удалён.")
+        await message.answer(
+            f"🗑 Дайджест №{channel_id} удалён. Твой Telegram-канал не тронут."
+        )
     else:
-        await message.answer(f"⚠️ Канал {channel_id} не найден или не твой.")
+        await message.answer(f"⚠️ Дайджест №{channel_id} не найден или не твой.")
 
 
 def _sources_summary(found: int, validated: int, connected: int) -> str:
@@ -455,7 +307,7 @@ def _sources_summary(found: int, validated: int, connected: int) -> str:
     if connected > validated:
         return (base + f"\nПодключено {connected} "
                 f"(добрали {connected - validated} кандидатов — тема узкая, "
-                f"мало кто прошёл проверку; проверь /sources и убери лишних)\n")
+                f"мало кто прошёл проверку)\n")
     return base + f", подключено: {connected}\n"
 
 
@@ -476,16 +328,50 @@ async def _create_with_ai(
     )
     if uid is None:
         return
+    # Проверки ввода и лимитов — ДО дорогой работы и без учёта в лимите:
+    # лимит тратит только успешно созданный дайджест.
     if len(topic_description) < 10:
         await message.answer(
-            "❌ Слишком короткое описание. Минимум 10 символов.\n"
-            "Пример: <code>/createchannel ai крикет, премьер-лига Индии</code>"
+            "❌ Слишком короткое описание темы — нужно хотя бы 10 символов.\n"
+            "Например: <i>«крикет, премьер-лига Индии»</i>"
         )
         return
+    is_admin = uid == _cfg.admin_user_id
+    if not is_admin:
+        async with session_maker()() as session:
+            if len(await get_user_channels(session, uid)) >= MAX_CHANNELS_PER_USER:
+                await message.answer(_max_digests_text())
+                return
+        wait = CREATE_DIGEST_LIMIT.retry_after(uid)
+        if wait:
+            await message.answer(
+                f"⏳ Можно создавать не больше {CREATE_DIGEST_LIMIT.max_calls} "
+                f"дайджестов за {CREATE_DIGEST_LIMIT.window_sec // 60} мин. "
+                f"Попробуй через {wait} сек."
+            )
+            return
+    if uid in _creating:
+        await message.answer("⏳ Уже собираю дайджест — подожди минуту, пока закончу.")
+        return
 
+    _creating.add(uid)
+    try:
+        await _create_with_ai_pipeline(message, topic_description, uid)
+    finally:
+        _creating.discard(uid)
+
+
+async def _create_with_ai_pipeline(
+    message: Message, topic_description: str, uid: int
+) -> bool:
+    """Сам подбор и создание. True — дайджест создан.
+
+    Лимит учитывается сразу после записи дайджеста в БД — даже если потом
+    не удастся отрисовать итоговое сообщение, создание уже состоялось."""
+    topic_html = html.escape(topic_description)
     status_msg = await message.answer(
-        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
-        f"Шаг 1/3: генерирую поисковые запросы..."
+        f"🤖 Подбираю источники по теме: <i>{topic_html}</i>\n"
+        f"Шаг 1/4: генерирую поисковые запросы..."
     )
 
     # === Шаг 1: Multi-shot keyword generation через Sonnet ===
@@ -511,15 +397,15 @@ async def _create_with_ai(
 
     if not queries:
         await status_msg.edit_text(
-            "⚠️ Не удалось сгенерировать поисковые запросы. Попробуй переформулировать.\n"
-            "Или используй готовый темплейт: /templates"
+            "⚠️ Не удалось подобрать поисковые запросы. Попробуй "
+            "переформулировать тему — например, шире или по-английски."
         )
-        return
+        return False
 
-    queries_display = ", ".join(f"<code>{q}</code>" for q in queries[:4])
+    queries_display = ", ".join(f"<code>{html.escape(q)}</code>" for q in queries[:4])
     await status_msg.edit_text(
-        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
-        f"Шаг 2/3: ищу реальные аккаунты в X по запросам:\n{queries_display}"
+        f"🤖 Подбираю источники по теме: <i>{topic_html}</i>\n"
+        f"Шаг 2/4: ищу реальные аккаунты в X по запросам:\n{queries_display}"
     )
 
     # === Шаг 2: Twitter Search по каждому ключевику ===
@@ -546,26 +432,25 @@ async def _create_with_ai(
 
     if len(filtered) < 3:
         await status_msg.edit_text(
-            f"⚠️ Для темы «{topic_description}» в X найдено только {len(filtered)} "
+            f"⚠️ Для темы «{topic_html}» в X найдено только {len(filtered)} "
             f"активных аккаунтов с достаточной аудиторией.\n\n"
             f"Похоже, тема <b>локальная или плохо представлена в X</b> "
             f"(например, региональные новости РФ, узкие хобби, русскоязычные ниши).\n\n"
             f"<b>Что попробовать:</b>\n\n"
             f"1️⃣ Переформулировать на английском (manicure вместо маникюр)\n"
             f"2️⃣ Сделать тему шире (beauty industry вместо nail care)\n"
-            f"3️⃣ Использовать готовый темплейт: /templates\n"
-            f"4️⃣ <b>🆕 Использовать Telegram-каналы как источники</b> — "
+            f"3️⃣ <b>Использовать Telegram-каналы как источники</b> — "
             f"напиши /tg_help для деталей"
         )
-        return
+        return False
 
     # Сортируем по followers desc, берём топ-20 для ранжирования LLM
     filtered.sort(key=lambda u: u["followers_count"], reverse=True)
     top_candidates = filtered[:30]
 
     await status_msg.edit_text(
-        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
-        f"Шаг 3/3: нашёл {len(filtered)} кандидатов, выбираю самых релевантных..."
+        f"🤖 Подбираю источники по теме: <i>{topic_html}</i>\n"
+        f"Шаг 3/4: нашёл {len(filtered)} кандидатов, выбираю самых релевантных..."
     )
 
     # === Шаг 3: LLM выбирает самых релевантных из реальных кандидатов ===
@@ -587,7 +472,7 @@ async def _create_with_ai(
     # гейты — доля текста, активность (< 21 дня тишины), частота;
     # сортировка — по ожидаемой отдаче (постов/нед).
     await status_msg.edit_text(
-        f"🤖 Подбираю источники по теме: <i>{topic_description}</i>\n"
+        f"🤖 Подбираю источники по теме: <i>{topic_html}</i>\n"
         f"Шаг 4/4: проверяю {len(selected)} кандидатов по их реальным твитам..."
     )
     pairs = [
@@ -641,43 +526,70 @@ async def _create_with_ai(
             mode="hybrid",
             sources=sources_list,
         )
+    if uid != _cfg.admin_user_id:
+        CREATE_DIGEST_LIMIT.record(uid)
 
     # Если выбрано мало источников — узкая тема, предупредим
     narrow_topic_warning = ""
     if len(selected) < 8:
         narrow_topic_warning = (
             f"\n⚠️ <b>Внимание:</b> для этой темы найдено мало источников ({len(selected)}). "
-            f"Возможно тема слишком узкая — Twitter может не покрывать её хорошо.\n"
-            f"Можешь добавить свои источники командой "
-            f"<code>/addsource {channel.id} @username</code>\n"
+            f"Возможно, тема слишком узкая — X может покрывать её слабо. "
+            f"Позже можно подобрать ещё источники кнопкой «Подобрать ещё источники».\n"
         )
 
-    lines = [
-        f"✅ <b>Канал создан с реальными источниками из X!</b>\n",
-        f"📝 <b>{title}</b> (id={channel.id})\n",
+    head = [
+        f"✅ <b>Дайджест «{html.escape(title)}» готов — источники найдены в X!</b>\n",
         f"{_slot_status_line(channel)}",
         _sources_summary(len(filtered), n_validated, len(sources_list)),
         narrow_topic_warning,
         f"📡 <b>Источники:</b>",
     ]
+    src_lines = []
     for u in sources_list:
         reason = reason_by_user.get(u.lstrip("@").strip().lower(), "").strip()
         if reason:
-            lines.append(f"  • @{html.escape(str(u))} — {html.escape(str(reason))}")
+            src_lines.append(f"  • @{html.escape(str(u))} — {html.escape(str(reason))}")
         else:
-            lines.append(f"  • @{u}")
+            src_lines.append(f"  • @{html.escape(str(u))}")
 
-    lines.append(
-        f"\n⚙️ Режим: hybrid (4 дайджеста в день + до 5 виральных твитов сразу)\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>⚠️ ОСТАЛСЯ ОДИН ШАГ — подключить канал в Telegram:</b>\n\n"
-        f"1️⃣ Создай Telegram-канал\n"
-        f"2️⃣ Добавь @TwidgestBot админом (нужно право «Публикация сообщений»)\n"
-        f"3️⃣ Перешли (forward) любой пост из канала\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📋 Список твоих каналов: /channels"
-    )
-    await status_msg.edit_text("\n".join(lines))
+    lines = [
+        "\n⚙️ Публикация: 4 подборки в день + до 5 самых обсуждаемых твитов сразу.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+
+    # Канал уже ждёт дайджест (юзер сначала сделал бота админом) — подключаем сам
+    from bot.handlers.forward import link_pending_channel, next_steps_kb
+    linked = None
+    try:
+        linked = await link_pending_channel(message.bot, uid, channel.id)
+    except Exception:
+        logger.exception("createchannel: auto-link of pending channel failed")
+
+    if linked is not None:
+        _chat_id, chat_title = linked
+        lines.append(
+            f"✅ <b>Канал «{html.escape(chat_title or 'Без названия')}» подключён "
+            f"к этому дайджесту!</b>\n\n"
+            f"Первые посты появятся в течение получаса — после ближайшего сбора твитов."
+        )
+        kb = next_steps_kb(channel.id)
+    else:
+        lines.append(
+            f"<b>Остался один шаг — подключить твой Telegram-канал, куда я буду "
+            f"публиковать посты.</b>\n\n"
+            f"{CONNECT_STEP}\n\n"
+            f"<i>{CONNECT_FALLBACK}</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [await connect_channel_button(message.bot)],
+        ])
+    text = "\n".join(head + src_lines + lines)
+    if len(text) > 4000:  # лимит Telegram 4096: длинные пояснения LLM режем первыми
+        src_lines = [f"  • @{html.escape(str(u))}" for u in sources_list]
+        text = "\n".join(head + src_lines + lines)
+    await status_msg.edit_text(text, reply_markup=kb)
+    return True
 
 
 async def _llm_rank_candidates(

@@ -130,11 +130,89 @@ async def set_channel_target(
     channel_id: int,
     target_chat_id: int,
     target_chat_title: str | None,
+    activate: bool = False,
 ) -> bool:
+    """Привязка Telegram-канала к дайджесту (Channel.target_chat_id/title).
+
+    activate=True — заодно снять паузу is_active=False: её ставит только
+    safe_sender при потере доступа к каналу, а привязка — момент, когда
+    доступ (заново) выдан."""
     channel = await get_channel(session, channel_id)
     if channel is None:
         return False
     channel.target_chat_id = target_chat_id
     channel.target_chat_title = target_chat_title
+    if activate:
+        channel.is_active = True
     await session.commit()
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Канал, ждущий дайджест.
+#
+# Юзер сделал бота админом своего Telegram-канала (кнопка startchannel →
+# my_chat_member), а дайджеста без канала у него нет (или их несколько и надо
+# выбрать). Запоминаем канал до создания/выбора дайджеста.
+#
+# Хранилище — legacy-таблица targets (Target: user_id, chat_id, chat_title —
+# ровно «куда юзер хочет постить»; воркеры её не читают). Строки ожидания
+# помечены mode="pending", чтобы не смешиваться со старыми /target-записями.
+# Новой схемы нет. Строка живёт до привязки или до потери прав в канале.
+# --------------------------------------------------------------------------- #
+
+PENDING_MODE = "pending"
+
+
+async def remember_pending_channel(
+    session: AsyncSession, user_id: int, chat_id: int, chat_title: str | None
+) -> None:
+    """Upsert по (user_id, chat_id): повторное добавление бота не плодит строк."""
+    from db.models import Target
+
+    res = await session.execute(
+        select(Target).where(
+            Target.user_id == user_id,
+            Target.chat_id == chat_id,
+            Target.mode == PENDING_MODE,
+        )
+    )
+    row = res.scalars().first()
+    if row is None:
+        session.add(Target(
+            user_id=user_id, chat_id=chat_id, chat_title=chat_title,
+            mode=PENDING_MODE, is_active=True,
+        ))
+    else:
+        row.chat_title = chat_title
+    await session.commit()
+
+
+async def get_pending_channels(session: AsyncSession, user_id: int) -> list:
+    """Каналы юзера, ждущие дайджест, свежие первыми."""
+    from db.models import Target
+
+    res = await session.execute(
+        select(Target)
+        .where(Target.user_id == user_id, Target.mode == PENDING_MODE)
+        .order_by(Target.added_at.desc(), Target.id.desc())
+    )
+    return list(res.scalars().all())
+
+
+async def drop_pending_channel(
+    session: AsyncSession, chat_id: int, user_id: int | None = None
+) -> int:
+    """Снять ожидание канала: у одного юзера или (user_id=None) у всех —
+    когда бот потерял права в канале. Возвращает число снятых строк."""
+    from sqlalchemy import delete as sa_delete
+    from db.models import Target
+
+    q = sa_delete(Target).where(
+        Target.chat_id == chat_id, Target.mode == PENDING_MODE
+    )
+    if user_id is not None:
+        q = q.where(Target.user_id == user_id)
+    res = await session.execute(q)
+    await session.commit()
+    return int(res.rowcount or 0)

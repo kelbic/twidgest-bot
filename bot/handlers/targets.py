@@ -5,6 +5,7 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
+from db.repositories.channels import PENDING_MODE
 from db.repositories.users import (
     add_target,
     get_or_create_user,
@@ -36,14 +37,16 @@ async def cmd_targets(message: Message) -> None:
         user = await get_or_create_user(
             session, message.from_user.id, message.from_user.username
         )
-        if not user.targets:
+        # Строки ожидания канала (mode="pending", онбординг) — не цели постинга
+        targets = [t for t in user.targets if t.mode != PENDING_MODE]
+        if not targets:
             await message.answer(
                 "У вас нет каналов для постинга.\n"
                 "Настройте через /target."
             )
             return
         lines = ["📢 <b>Ваши цели для постинга:</b>\n"]
-        for t in user.targets:
+        for t in targets:
             mark = "✅" if t.is_active else "⏸"
             title = t.chat_title or f"chat_id={t.chat_id}"
             lines.append(f"{mark} <b>{title}</b> — режим: <code>{t.mode}</code> (id={t.id})")
@@ -80,7 +83,7 @@ async def cmd_target(message: Message, command: CommandObject) -> None:
             session, message.from_user.id, message.from_user.username
         )
         from core.plan import MAX_CHANNELS_PER_USER
-        if len(user.targets) >= MAX_CHANNELS_PER_USER:
+        if len([t for t in user.targets if t.mode != PENDING_MODE]) >= MAX_CHANNELS_PER_USER:
             await message.answer(
                 f"❌ Максимум {MAX_CHANNELS_PER_USER} каналов на аккаунт."
             )
