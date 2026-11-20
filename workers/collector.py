@@ -20,13 +20,14 @@ from sqlalchemy.orm import selectinload
 
 from core.llm_client import OpenRouterClient
 from config import Config
-from core.image_picker import fetch_image_url_for_keywords
+from core.attribution import footer_for
+from core.quality_gate import Rejected, prepare_single_post
 from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import compute_topic_signature, is_duplicate_topic
 from core.twitter_cache import TwitterCache
 from core.twitter_client import Tweet
 from core.vk_client import VKClient, VKPost
-from db.models import Channel, User
+from db.models import Channel, RejectionLog, User
 from db.repositories.tweets import (
     enqueue_for_digest,
     posts_today_channel,
@@ -347,35 +348,36 @@ async def _process_channel(
                     logger.info("Skipped tweet %s (LLM SKIP)", tw.id)
                     continue
 
-                # Подбираем картинку через LLM keywords + Unsplash API
-                photo_url = None
-                if (
-                    channel.images_enabled
-                    and _cfg_unsplash.unsplash_access_key
-                ):
-                    try:
-                        keywords = await llm.suggest_image_keywords(rewritten)
-                        if keywords:
-                            photo_url = await fetch_image_url_for_keywords(
-                                keywords, _cfg_unsplash.unsplash_access_key
-                            )
-                            if photo_url:
-                                logger.info(
-                                    "Channel %d: image found via '%s'",
-                                    channel.id, keywords,
-                                )
-                    except Exception:
-                        logger.exception("Image fetch failed, posting without image")
+                # Quality Gate: тизер, медиа первоисточника, анти-дубль, визуальные обещания
+                prepared = await prepare_single_post(
+                    session=session,
+                    channel=channel,
+                    llm=llm,
+                    text=rewritten,
+                    original_media_url=tw.media_url,
+                    unsplash_key=_cfg_unsplash.unsplash_access_key,
+                    spend=lambda: budget.spend(channel.id),
+                )
+                if isinstance(prepared, Rejected):
+                    session.add(RejectionLog(
+                        channel_id=channel.id, tweet_id=tw.id,
+                        twitter_username=tw.username, reason=prepared.reason,
+                    ))
+                    await mark_processed(session, user.tg_user_id, tw.id, tw.username)
+                    logger.info("Skipped tweet %s: %s (%s)", tw.id, prepared.reason, prepared.detail)
+                    continue
 
                 ok = await send_to_target(
-                    bot, session, fake_target, rewritten,
-                    photo_url=photo_url,
+                    bot, session, fake_target, prepared.text,
+                    photo_url=prepared.photo_url,
+                    footer=footer_for(channel, is_digest=False),
                 )
                 if ok:
                     await mark_processed(session, user.tg_user_id, tw.id, tw.username)
                     await log_post(
                         session, user.tg_user_id, channel.id, is_digest=False,
                         topic_signature=compute_topic_signature(tw.text),
+                        media_fingerprint=prepared.media_fingerprint,
                     )
                     logger.info(
                         "Posted tweet %s to channel=%d (chat=%d)",
@@ -491,14 +493,35 @@ async def _process_vk_source(
                 await mark_processed(session, user.tg_user_id, post_uid, identifier)
                 continue
 
-            photo_url = post.image_url if channel.images_enabled else None
+            prepared = await prepare_single_post(
+                session=session,
+                channel=channel,
+                llm=llm,
+                text=rewritten,
+                original_media_url=post.image_url,
+                unsplash_key=None,          # VK-путь стоком не пользовался и не будет
+                spend=lambda: budget.spend(channel.id),
+            )
+            if isinstance(prepared, Rejected):
+                session.add(RejectionLog(
+                    channel_id=channel.id, tweet_id=post_uid,
+                    twitter_username=identifier, reason=prepared.reason,
+                ))
+                await mark_processed(session, user.tg_user_id, post_uid, identifier)
+                logger.info("Skipped VK post %s: %s (%s)", post_uid, prepared.reason, prepared.detail)
+                continue
 
-            ok = await send_to_target(bot, session, fake_target, rewritten, photo_url=photo_url)
+            ok = await send_to_target(
+                bot, session, fake_target, prepared.text,
+                photo_url=prepared.photo_url,
+                footer=footer_for(channel, is_digest=False),
+            )
             if ok:
                 await mark_processed(session, user.tg_user_id, post_uid, identifier)
                 await log_post(
                     session, user.tg_user_id, channel.id, is_digest=False,
                     topic_signature=compute_topic_signature(post.text),
+                    media_fingerprint=prepared.media_fingerprint,
                 )
                 logger.info("Posted VK post %s to channel=%d", post_uid, channel.id)
                 import asyncio as _asyncio

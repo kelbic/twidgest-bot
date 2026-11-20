@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -99,15 +99,23 @@ HELP = """\
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message) -> None:
+async def cmd_start(message: Message, command: CommandObject | None = None) -> None:
     if message.from_user is None:
         return
+    # Воронка витрин: t.me/<bot>?start=src_c5 → users.start_source (первое касание)
+    from core.attribution import parse_start_source
+    source = parse_start_source(command.args if command else None)
     async with session_maker()() as session:
         await get_or_create_user(
             session,
             tg_user_id=message.from_user.id,
             tg_username=message.from_user.username,
+            start_source=source,
         )
+    if source:
+        import logging
+        logging.getLogger(__name__).info(
+            "start: user %d via %s", message.from_user.id, source)
     await message.answer(
         WELCOME, reply_markup=WELCOME_KB, disable_web_page_preview=True
     )

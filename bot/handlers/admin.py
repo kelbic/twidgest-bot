@@ -15,6 +15,7 @@ from config import Config
 from db.repositories.admin import (
     get_all_user_ids,
     get_funnel,
+    get_funnel_by_source,
     get_global_stats,
     get_user_full,
 )
@@ -41,7 +42,8 @@ HELP_TEXT = (
     "/admin broadcast TEXT - рассылка всем\n"
     "/admin addsource CHANNEL_ID @user|vk:domain - добавить источник любому каналу\n"
     "/admin removesource CHANNEL_ID @user|vk:domain - удалить источник\n"
-    "/admin setthreshold CHANNEL_ID likes=N retweets=N - порог виральности"
+    "/admin setthreshold CHANNEL_ID likes=N retweets=N - порог виральности\n"
+    "/admin attribution CHANNEL_ID off|digest_only|all_posts|auto - подпись «Собрано @бот»"
 )
 
 
@@ -81,6 +83,8 @@ async def cmd_admin(message: Message, command: CommandObject) -> None:
         await _admin_removesource(message, rest)
     elif sub == "setthreshold":
         await _admin_setthreshold(message, rest)
+    elif sub == "attribution":
+        await _admin_attribution(message, rest)
     else:
         await message.answer(f"Unknown subcommand: {sub}\n\n{HELP_TEXT}")
 
@@ -242,6 +246,17 @@ async def _admin_funnel(message: Message, args: list) -> None:
         lines.append(f"{label}: {n}{pct}")
     if base == 0:
         lines.append("\nКогорта пустая — некому конвертироваться.")
+    async with session_maker()() as session:
+        by_src = await get_funnel_by_source(
+            session, since, exclude_user_id=Config().admin_user_id
+        )
+    if by_src:
+        lines.append("\nПо источникам (/start-параметр):")
+        for src, st in sorted(by_src.items(), key=lambda kv: -kv[1]["registered"]):
+            lines.append(
+                f"{src}: рег {st['registered']} · канал {st['created_channel']} · "
+                f"привязал {st['bound_channel']} · посты {st['got_posts']} · оплата {st['paid']}"
+            )
     await message.answer("\n".join(lines))
 
 
@@ -461,6 +476,46 @@ async def _admin_notify(message: Message, args: list) -> None:
         await message.answer(f"Failed to send: {exc}")
         logger.exception("Admin notify failed")
 
+
+
+async def _admin_attribution(message: Message, args: list) -> None:
+    """Режим подписи «Собрано @бот» у канала: off | digest_only | all_posts | auto."""
+    from core.attribution import MODES, deep_link, channel_slug, effective_mode
+    usage = "Usage: /admin attribution CHANNEL_ID off|digest_only|all_posts|auto"
+    if len(args) != 2:
+        await message.answer(usage)
+        return
+    try:
+        channel_id = int(args[0])
+    except ValueError:
+        await message.answer("channel_id must be int.")
+        return
+    mode = args[1].lower().strip()
+    if mode not in MODES + ("auto",):
+        await message.answer(usage)
+        return
+
+    from sqlalchemy import select
+    from db.models import Channel
+
+    async with session_maker()() as session:
+        channel = (await session.execute(
+            select(Channel).where(Channel.id == channel_id)
+        )).scalar_one_or_none()
+        if channel is None:
+            await message.answer(f"Channel {channel_id} not found.")
+            return
+        channel.attribution_mode = None if mode == "auto" else mode
+        await session.commit()
+        effective = effective_mode(channel)
+
+    await message.answer(
+        f"Channel #{channel_id} ({html.escape(channel.title or '')}): attribution = "
+        f"{mode} → действует {effective}.\n"
+        f"Ссылка подписи: {deep_link(channel_slug(channel_id))}"
+    )
+    logger.info("Admin set attribution on channel %d to %s (effective %s)",
+                channel_id, mode, effective)
 
 
 async def _admin_setfilter(message: Message, args: list) -> None:

@@ -33,6 +33,9 @@ class User(Base):
     trial_notify_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Первое касание: start-параметр deep-link'а (src_<slug> с витрины, статьи и т.п.).
+    # Пишется ТОЛЬКО при регистрации; повторный /start по другой ссылке не перезаписывает.
+    start_source: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
 
     # Старые relationships оставляем для совместимости (миграция в следующей итерации)
     sources: Mapped[list["Source"]] = relationship(
@@ -110,6 +113,11 @@ class Channel(Base):
     # факт и время отказа фиксируются для аудита.
     legal_rf_filter: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     legal_optout_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+
+    # Подпись «Собрано @бот» под постами: off | digest_only | all_posts.
+    # NULL = авто по статусу канала (core/attribution.effective_mode): витрины
+    # админа и триал — all_posts, оплаченные — off. Меняется /admin attribution.
+    attribution_mode: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)
 
     user: Mapped["User"] = relationship(back_populates="channels")
     channel_sources: Mapped[list["ChannelSource"]] = relationship(
@@ -239,6 +247,10 @@ class DigestQueueItem(Base):
     interest_score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     posted_at_single: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     tweet_created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Substance Gate (вердикт ранкера): 'ok' | 'teaser' (субъект назван, фактов нет /
+    # тизер) | 'unnamed' (нет названного субъекта). NULL = ранкер не оценивал.
+    # Single не публикует teaser/unnamed; дайджест не берёт unnamed.
+    substance: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)
 
 
 class PostLog(Base):
@@ -252,6 +264,9 @@ class PostLog(Base):
     )
     is_digest: Mapped[bool] = mapped_column(Boolean, default=False)
     topic_signature: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Отпечаток прикреплённого медиа ('orig:<host/path>' | 'stock:<host/path>'),
+    # NULL = пост без картинки. Окно анти-дубля — последние 20 постов канала.
+    media_fingerprint: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
 
 
 class DigestLog(Base):

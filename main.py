@@ -178,6 +178,9 @@ async def main() -> None:
     # pending-платежей, осиротевшие при рестарте, дочитываем поллером.
     import bot.handlers.billing as billing_module
     billing_module.BOT_USERNAME = me.username
+    # Подпись атрибуции витрин («Собрано @бот» + deep-link src_c<id>) — тот же username
+    import core.attribution as attribution_module
+    attribution_module.BOT_USERNAME = me.username
     if cfg.yookassa_shop_id and cfg.yookassa_secret_key:
         from bot.handlers.billing import check_sbp_provider, resume_pending_sbp
         try:

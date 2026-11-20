@@ -40,6 +40,11 @@ async def build_user_digest(
     digest_text = await llm.build_digest(digest_tweets, niche=niche)
     if not digest_text:
         return None
+    # Substance Gate: пункты-тизеры вырезаем (тот же пост-чек, что в workers/publisher)
+    from core.quality_gate import strip_teaser_items
+    digest_text, _dropped = strip_teaser_items(digest_text)
+    if not digest_text:
+        return None
 
     return DigestBuildResult(
         text=digest_text,

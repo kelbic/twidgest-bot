@@ -17,6 +17,8 @@ from core.llm_client import DigestTweet, OpenRouterClient
 from core.plan import channel_active, digest_floor, posts_cap
 from core import metrics
 from db.repositories.channel_costs import save_channel_cost
+from core.attribution import footer_for
+from core.quality_gate import REJECT_LOW_SUBSTANCE, strip_teaser_items
 from core.safe_sender import ChannelTarget, send_to_target
 from core.topic_dedup import dedup_within
 from db.models import ChannelSource, Channel, User
@@ -203,12 +205,36 @@ async def _process_channel(
             await session.commit()
             return
 
+        # Substance Gate для дайджеста: краткие пункты допустимы, пункты-тизеры
+        # («подробностей нет», безымянная «новая модель») — нет. Режем пункты, а не
+        # весь выпуск; не осталось ни одного — тот же путь, что digest_failed.
+        digest_text, dropped = strip_teaser_items(digest_text)
+        if dropped:
+            logger.info("Channel %d: digest — вырезано пунктов-тизеров: %d",
+                        channel.id, dropped)
+        if digest_text is None:
+            from db.models import RejectionLog
+            for t in queue:
+                session.add(RejectionLog(
+                    channel_id=channel.id,
+                    tweet_id=t.tweet_id,
+                    twitter_username=t.twitter_username,
+                    reason=REJECT_LOW_SUBSTANCE,
+                ))
+            await session.commit()
+            logger.warning("Channel %d: все пункты дайджеста — тизеры, выпуск пропущен",
+                           channel.id)
+            return
+
         fake_target = ChannelTarget(
             channel_id=channel.id,
             chat_id=channel.target_chat_id,
         )
 
-        ok = await send_to_target(bot, session, fake_target, digest_text)
+        ok = await send_to_target(
+            bot, session, fake_target, digest_text,
+            footer=footer_for(channel, is_digest=True), is_digest=True,
+        )
         if not ok:
             return
 

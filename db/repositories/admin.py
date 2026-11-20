@@ -113,6 +113,7 @@ async def get_funnel(
     session: AsyncSession,
     since: datetime | None,
     exclude_user_id: int | None = None,
+    start_source: str | None = None,
 ) -> dict[str, int]:
     """Воронка по когорте юзеров, зарегистрировавшихся после since.
 
@@ -125,6 +126,8 @@ async def get_funnel(
         cohort_q = cohort_q.where(User.created_at >= since)
     if exclude_user_id is not None:
         cohort_q = cohort_q.where(User.tg_user_id != exclude_user_id)
+    if start_source is not None:
+        cohort_q = cohort_q.where(User.start_source == start_source)
     cohort = [row[0] for row in (await session.execute(cohort_q)).all()]
 
     stages = {
@@ -152,6 +155,27 @@ async def get_funnel(
     stages["got_posts"] = await _distinct(PostLog.user_id)
     stages["paid"] = await _distinct(Payment.user_id)
     return stages
+
+
+async def get_funnel_by_source(
+    session: AsyncSession,
+    since: datetime | None,
+    exclude_user_id: int | None = None,
+) -> dict[str, dict[str, int]]:
+    """Та же воронка, разложенная по users.start_source (витрины src_c<id>, статьи).
+    Юзеры без параметра /start сюда не входят — их покрывает общая get_funnel."""
+    q = select(func.distinct(User.start_source))
+    if since is not None:
+        q = q.where(User.created_at >= since)
+    if exclude_user_id is not None:
+        q = q.where(User.tg_user_id != exclude_user_id)
+    sources = [row[0] for row in (await session.execute(q)).all()]
+    out: dict[str, dict[str, int]] = {}
+    for src in sources:
+        if src is None:
+            continue
+        out[src] = await get_funnel(session, since, exclude_user_id, start_source=src)
+    return out
 
 
 async def get_all_user_ids(session: AsyncSession) -> list[int]:

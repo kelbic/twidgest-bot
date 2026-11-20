@@ -43,8 +43,14 @@ async def send_to_target(
     target: ChannelTarget,
     text: str,
     photo_url: str | None = None,
+    footer: str = "",
+    is_digest: bool = False,
 ) -> bool:
     """Шлёт пост в Telegram. Если photo_url задан — отправляет как фото с подписью.
+
+    footer — подпись атрибуции (core/attribution.footer_for). Приклеивается ПОСЛЕ
+    проверок безопасности (они смотрят на текст LLM) и переживает обрезку подписи
+    к фото: режется тело, подпись остаётся последней строкой.
 
     Возвращает True при успехе, False при ошибке.
     При критичных ошибках (бот выкинут из канала, чат не существует)
@@ -80,6 +86,10 @@ async def send_to_target(
         )
         return False
 
+    from core.attribution import apply_footer
+    body = text
+    text = apply_footer(body, footer, is_digest=is_digest)
+
     # Telegram caption limit = 1024 chars. Если текст длиннее — режем для photo.
     # Для текстового сообщения лимит 4096, обычно хватает.
     CAPTION_LIMIT = 1024
@@ -88,8 +98,12 @@ async def send_to_target(
         # Пытаемся отправить как фото с подписью
         caption = text
         if len(caption) > CAPTION_LIMIT:
-            # Режем оставив место под маркер
-            caption = caption[: CAPTION_LIMIT - 30].rstrip() + "...\n\n<i>(полный текст в источнике)</i>"
+            # Режем ТЕЛО, оставив место ровно под маркер и подпись атрибуции
+            # (прежний резерв «30» был меньше самого маркера — 39 знаков)
+            marker = "...\n\n<i>(полный текст в источнике)</i>"
+            tail = f"\n{footer}" if footer else ""
+            caption = (body[: CAPTION_LIMIT - len(marker) - len(tail)].rstrip()
+                       + marker + tail)
         await bot.send_photo(
             chat_id=target.chat_id,
             photo=photo_url,

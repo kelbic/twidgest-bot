@@ -38,8 +38,17 @@ RANKER_SYSTEM = """Ты выпускающий редактор русскояз
 
 3. why — причина в 2-4 словах, по-русски.
 
+4. Фактологическая полнота (Substance Gate) — три флага:
+   - has_named_subject: в твите НАЗВАН конкретный продукт, модель, компания,
+     проект, исследование или событие (не абстрактная «новая модель», «один стартап»);
+   - has_actionable_facts: есть хотя бы один конкретный факт — число, дата,
+     характеристика, лицензия, ссылка на релиз/результат;
+   - admits_missing_details: твит — тизер без подробностей («скоро», «что-то
+     большое», «детали позже»), подробностей в нём самом нет.
+
 Верни СТРОГО JSON-массив без markdown и комментариев:
-[{"id": 1, "interest": 7, "junk": false, "why": "конкретные цифры"}]
+[{"id": 1, "interest": 7, "junk": false, "why": "конкретные цифры",
+  "has_named_subject": true, "has_actionable_facts": true, "admits_missing_details": false}]
 Ровно по одному объекту на каждый входной id."""
 
 
@@ -48,6 +57,29 @@ class Verdict:
     interest: int
     junk: bool
     why: str
+    # Substance Gate. Отсутствующее поле = «прошло» (ранкер fail-open; детерминированный
+    # пост-чек текста в core/quality_gate стоит дальше независимо от LLM).
+    has_named_subject: bool = True
+    has_actionable_facts: bool = True
+    admits_missing_details: bool = False
+
+    @property
+    def substance(self) -> str:
+        """'unnamed' — нет названного субъекта (не берём ни в single, ни в дайджест);
+        'teaser' — субъект есть, но нет фактов / тизер (не публикуем отдельно);
+        'ok' — можно публиковать отдельным постом."""
+        if not self.has_named_subject:
+            return "unnamed"
+        if not self.has_actionable_facts or self.admits_missing_details:
+            return "teaser"
+        return "ok"
+
+
+def _flag(row: dict, key: str, default: bool) -> bool:
+    v = row.get(key, default)
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes", "да")
+    return bool(v) if v is not None else default
 
 
 def _strip_fences(raw: str) -> str:
@@ -96,7 +128,7 @@ async def rank_candidates(llm, channel, items) -> dict[int, Verdict] | None:
     )
 
     raw = await llm._call_with_retry(
-        RANKER_SYSTEM, user_prompt, max_tokens=600, temperature=0.1
+        RANKER_SYSTEM, user_prompt, max_tokens=900, temperature=0.1
     )
     if not raw:
         return None
@@ -129,6 +161,9 @@ async def rank_candidates(llm, channel, items) -> dict[int, Verdict] | None:
             interest=interest,
             junk=bool(row.get("junk", False)),
             why=str(row.get("why", "")).strip()[:64],
+            has_named_subject=_flag(row, "has_named_subject", True),
+            has_actionable_facts=_flag(row, "has_actionable_facts", True),
+            admits_missing_details=_flag(row, "admits_missing_details", False),
         )
 
     if not out:

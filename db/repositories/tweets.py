@@ -86,6 +86,10 @@ async def get_digest_queue(
         DigestQueueItem.channel_id == channel_id,
         DigestQueueItem.queued_at > datetime.utcnow() - timedelta(hours=14),
         DigestQueueItem.tweet_created_at > datetime.utcnow() - timedelta(hours=48),
+        # Substance Gate: пункт без названного субъекта не берём и в дайджест
+        # (краткость допустима, безымянность — нет). NULL = не оценён — берём.
+        or_(DigestQueueItem.substance == None,  # noqa: E711
+            DigestQueueItem.substance != "unnamed"),
     ]
     uname = func.lower(DigestQueueItem.twitter_username)
     topic_clauses = []
@@ -160,12 +164,14 @@ async def log_post(
     target_id: int,
     is_digest: bool,
     topic_signature: str | None = None,
+    media_fingerprint: str | None = None,
 ) -> None:
     item = PostLog(
         user_id=user_id,
         target_id=target_id,
         is_digest=is_digest,
         topic_signature=topic_signature,
+        media_fingerprint=media_fingerprint,
     )
     session.add(item)
     await session.commit()

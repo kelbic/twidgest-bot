@@ -11,9 +11,13 @@ from db.models import Source, Target, User, UserSettings
 
 
 async def get_or_create_user(
-    session: AsyncSession, tg_user_id: int, tg_username: str | None = None
+    session: AsyncSession, tg_user_id: int, tg_username: str | None = None,
+    start_source: str | None = None,
 ) -> User:
-    """Возвращает юзера, создавая если не существует. Также создаёт UserSettings."""
+    """Возвращает юзера, создавая если не существует. Также создаёт UserSettings.
+
+    start_source — параметр deep-link'а (/start src_c5): пишется ТОЛЬКО при создании
+    (первое касание), существующему юзеру не перезаписывается."""
     result = await session.execute(
         select(User)
         .where(User.tg_user_id == tg_user_id)
@@ -29,7 +33,7 @@ async def get_or_create_user(
 
     trial_expires = datetime.utcnow() + timedelta(days=14)
     user = User(tg_user_id=tg_user_id, tg_username=tg_username, tier="free",
-                tier_expires_at=trial_expires)
+                tier_expires_at=trial_expires, start_source=start_source)
     session.add(user)
     settings = UserSettings(user_id=tg_user_id)
     session.add(settings)

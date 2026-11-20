@@ -18,27 +18,44 @@ logger = logging.getLogger(__name__)
 
 UNSPLASH_API = "https://api.unsplash.com/search/photos"
 
-# In-memory cache: keyword (normalized) → (url, fetched_at)
-_CACHE: dict[str, tuple[str, float]] = {}
+# In-memory cache: keyword (normalized) → (urls выдачи по порядку, fetched_at).
+# Храним ВСЮ выдачу (до 5), а не первый URL: иначе похожие keywords («AI chip»)
+# раз за разом отдавали одну и ту же картинку в соседние посты канала.
+_CACHE: dict[str, tuple[list[str], float]] = {}
 _CACHE_TTL_SECONDS = 6 * 3600  # 6 часов: те же keywords дают тот же URL
 _CACHE_LOCK = asyncio.Lock()
 
 
-async def _get_cached(key: str) -> str | None:
+def media_fingerprint(url: str | None, kind: str) -> str | None:
+    """Стабильный отпечаток медиа для анти-дубля: '<kind>:<host/path>'.
+
+    kind: 'orig' — медиа первоисточника, 'stock' — подобранное (Unsplash).
+    Query/fragment отбрасываем: Unsplash и twimg вешают на один и тот же файл
+    разные параметры размера/трекинга.
+    """
+    if not url:
+        return None
+    from urllib.parse import urlsplit
+    parts = urlsplit(url.strip())
+    key = f"{parts.netloc.lower()}{parts.path}" if parts.netloc else url.strip()
+    return f"{kind}:{key}"[:512]
+
+
+async def _get_cached(key: str) -> list[str] | None:
     async with _CACHE_LOCK:
         entry = _CACHE.get(key)
         if entry is None:
             return None
-        url, ts = entry
+        urls, ts = entry
         if (time.time() - ts) > _CACHE_TTL_SECONDS:
             del _CACHE[key]
             return None
-        return url
+        return urls
 
 
-async def _set_cached(key: str, url: str) -> None:
+async def _set_cached(key: str, urls: list[str]) -> None:
     async with _CACHE_LOCK:
-        _CACHE[key] = (url, time.time())
+        _CACHE[key] = (urls, time.time())
         # Защита от роста: храним максимум 500 ключей
         if len(_CACHE) > 500:
             # Удаляем самый старый
@@ -50,16 +67,28 @@ async def fetch_image_url_for_keywords(
     keywords: str,
     access_key: str,
     timeout: int = 10,
+    exclude: set[str] | None = None,
 ) -> str | None:
     """Получает URL фото из Unsplash API по keywords.
 
     Args:
         keywords: 1-3 английских слова, разделённых пробелом
         access_key: Unsplash Access Key
+        exclude: отпечатки (media_fingerprint) уже использованных в канале
+            картинок — берём первый результат выдачи, которого там нет.
 
     Returns:
-        Прямой URL изображения (regular size) или None
+        Прямой URL изображения (regular size) или None (в т.ч. если ВСЯ
+        выдача уже была в канале — лучше текст, чем повтор).
     """
+    exclude = exclude or set()
+
+    def _first_unused(urls: list[str]) -> str | None:
+        for u in urls:
+            if media_fingerprint(u, "stock") not in exclude:
+                return u
+        return None
+
     if not access_key:
         return None
     if not keywords:
@@ -72,10 +101,10 @@ async def fetch_image_url_for_keywords(
 
     # Проверяем кэш — экономим Unsplash quota
     cache_key = cleaned.lower()
-    cached_url = await _get_cached(cache_key)
-    if cached_url:
+    cached_urls = await _get_cached(cache_key)
+    if cached_urls:
         logger.info("Unsplash cache hit: %r", cleaned)
-        return cached_url
+        return _first_unused(cached_urls)
 
     headers = {
         "Authorization": f"Client-ID {access_key}",
@@ -115,17 +144,20 @@ async def fetch_image_url_for_keywords(
         logger.info("Unsplash: no results for keywords=%r", cleaned)
         return None
 
-    # Берём первый результат, размер "regular" (1080px wide)
-    photo = results[0]
-    urls = photo.get("urls") or {}
-    image_url = urls.get("regular") or urls.get("small") or urls.get("full")
-
-    if image_url:
-        logger.info(
-            "Unsplash: keywords=%r → photo by %s",
-            cleaned,
-            (photo.get("user") or {}).get("username", "unknown"),
-        )
-        await _set_cached(cache_key, image_url)
-
-    return image_url
+    # Вся выдача, размер "regular" (1080px wide); берём первый неиспользованный
+    urls_all: list[str] = []
+    for photo in results:
+        u = (photo.get("urls") or {})
+        image_url = u.get("regular") or u.get("small") or u.get("full")
+        if image_url:
+            urls_all.append(image_url)
+    if not urls_all:
+        return None
+    await _set_cached(cache_key, urls_all)
+    chosen = _first_unused(urls_all)
+    if chosen is None:
+        logger.info("Unsplash: keywords=%r — вся выдача уже была в канале", cleaned)
+    else:
+        logger.info("Unsplash: keywords=%r → %d-й результат выдачи",
+                    cleaned, urls_all.index(chosen) + 1)
+    return chosen
